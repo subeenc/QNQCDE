@@ -11,7 +11,7 @@ python main.py \
   --lr 0.0001 \
   --warmup_ratio 0.05 \
   --temperature 0.2 \
-  --path_to_data ./data/datasets \
+  --path_to_data ../../../cl_research/OurModel/datasets \
   --train_data sgd_train_with_pairs.csv \
   --valid_data sgd_clustering_dev_with_pairs.csv 
 
@@ -27,7 +27,7 @@ python main.py \
 #  --lr 0.00005 \
 #  --warmup_ratio 0.05 \
 #  --temperature 0.2 \
-#  --path_to_data ./data/datasets \
+#  --path_to_data ../../../cl_research/OurModel/datasets \
 #  --test_data sgd_clustering_test_with_pairs.csv  \
 #  --path_to_saved_model output/best_checkpoint.pt
 
