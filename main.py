@@ -1,12 +1,5 @@
-<<<<<<< HEAD
 from model.setting import Setting, Arguments
 from model.ourcse.processor import Processor
-# ohjihyeon
-=======
-# from model.setting import Setting, Arguments
-# from model.ourcse.processor import Processor
-
->>>>>>> 755f9f53a0cd64fc8388fdc2c493f01af2a53b3c
 
 def main(args, logger) -> None:
     processor = Processor(args)
