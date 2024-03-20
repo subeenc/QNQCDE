@@ -95,7 +95,7 @@ class Processor():
 
             # based on acc, plz ref metrics.py->EvaluationResult.__lr__()
             is_best = True if evaluation_result > best_evaluation_result else False
-            print("is_best:", is_best)   
+            # print("is_best:", is_best)   
                 
             if 'semantic_relatedness' in tasks or 'session_retrieval' in tasks:
                 if type == 'test':
