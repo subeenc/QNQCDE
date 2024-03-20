@@ -12,12 +12,12 @@ class BERT(nn.Module):
         if mode=='train':
             
             # print("========== inputs['positive']['input_ids'] ==========")
-            # print(inputs['positive']['input_ids'].shape) # torch.Size([4, 8, seq_len])
-            # print((inputs['positive']['input_ids'].view(4, -1)).shape) # torch.Size([4, 128])
+            # print(inputs['positive']['input_ids'].shape) # torch.Size([4, 8, seq_len]) torch.Size([batch, #pairs, seq_len])
+            # print((inputs['positive']['input_ids'].view(batch_size, -1))) # torch.Size([4, 128])
             
             positive_output = self.bert(input_ids=inputs['positive']['input_ids'].view(batch_size, -1),
-                                           token_type_ids=inputs['positive']['role_ids'].view(batch_size, -1),
-                                           attention_mask=inputs['positive']['turn_ids'].view(batch_size, -1))
+                                        token_type_ids=inputs['positive']['role_ids'].view(batch_size, -1),
+                                        position_ids=inputs['positive']['turn_ids'].view(batch_size, -1))
             
             positive_last_hidden_state = positive_output['last_hidden_state']
             positive_lhs_output = positive_last_hidden_state.view(batch_size, -1, seq_len, 768)
@@ -26,7 +26,7 @@ class BERT(nn.Module):
             
             negative_output = self.bert(input_ids=inputs['negative']['input_ids'].view(batch_size, -1),
                                            token_type_ids=inputs['negative']['role_ids'].view(batch_size, -1),
-                                           attention_mask=inputs['negative']['turn_ids'].view(batch_size, -1))
+                                           position_ids=inputs['negative']['turn_ids'].view(batch_size, -1))
             
             negative_last_hidden_state = negative_output['last_hidden_state']
             negative_lhs_output = negative_last_hidden_state.view(batch_size, -1, seq_len, 768)
@@ -43,7 +43,7 @@ class BERT(nn.Module):
         else:
             dialogue_output = self.bert(input_ids=inputs['dialogue']['input_ids'].view(batch_size, -1),
                                            token_type_ids=inputs['dialogue']['role_ids'].view(batch_size, -1),
-                                           attention_mask=inputs['dialogue']['turn_ids'].view(batch_size, -1))
+                                           position_ids=inputs['dialogue']['turn_ids'].view(batch_size, -1))
             
             dialogue_last_hidden_state = dialogue_output['last_hidden_state']
             dialogue_lhs_output = dialogue_last_hidden_state.view(batch_size, -1, seq_len, 768)
@@ -56,7 +56,7 @@ class BERT(nn.Module):
 
         embeddings_outputs = self.bert(input_ids=inputs['input_ids'].view(batch_size, -1).to(device),
                                   token_type_ids=inputs['role_ids'].view(batch_size, -1).to(device),
-                                  attention_mask=inputs['turn_ids'].view(batch_size, -1).to(device))
+                                  position_ids=inputs['turn_ids'].view(batch_size, -1).to(device))
         embeddings = embeddings_outputs['last_hidden_state'].view(batch_size, -1, seq_len, 768)
         embeddings = torch.mean(embeddings, dim=2)
         # embeddings = embeddings_outputs['pooler_output']
