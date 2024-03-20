@@ -6,6 +6,7 @@ python main.py \
   --test False \
   --max_len 50 \
   --batch_size 4 \
+  --seq_len 16 \
   --epochs 3 \
   --eval_steps 250 \
   --lr 0.0001 \
