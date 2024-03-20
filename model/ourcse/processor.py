@@ -54,9 +54,7 @@ class Processor():
     
 
         if type == 'train':
-            #print("===========processor_run_inputs===========")
-            #print(inputs)
-            positive_embeddings, negative_embeddings = self.config['model'](inputs, type)
+            positive_embeddings, negative_embeddings = self.config['model'](inputs, type, self.args.batch_size, self.args.seq_len)
             # print("===== positive_embeddings =====")
             # print(positive_embeddings, positive_embeddings.shape)
              
@@ -65,22 +63,18 @@ class Processor():
         
         
         else:
-            dialgoue_embeddings = self.config['model'](inputs, type)
-            
-            pooled_dialgoue_embeddings = torch.mean(dialgoue_embeddings, dim=2)
-            pooled_dialgoue_embeddings = torch.sum(pooled_dialgoue_embeddings, dim=1) # torch.Size([4, 768])
+            dialgoue_embeddings = self.config['model'](inputs, type, self.args.batch_size, self.args.seq_len)
+            pooled_dialgoue_embeddings = torch.sum(dialgoue_embeddings, dim=1) # torch.Size([4, 768])
             
             # print("===== dialgoue_embeddings, inputs['label'] =====")
             # print(inputs['label'])
             # print(dialgoue_embeddings.shape)
             # print(pooled_dialgoue_embeddings.shape)
+            # print(pooled_dialgoue_embeddings.shape)
             # print(len(dialgoue_embeddings), len(inputs['label']))
-            # kosimcse
-            # score = self.loss.evaluation_during_training(dialgoue_embeddings, inputs['label'], indicator)
-            # return score
             
             best_evaluation_result = self.best_test_evaluation_result if type == 'test' else self.best_dev_evaluation_result
-            evaluation_result = EvaluationResult() # 초기화하고 출력 형식 나타내는 함수라고 이해
+            evaluation_result = EvaluationResult()
             
             if 'clustering' in tasks:
                 n_average = max(3, 10 - pooled_dialgoue_embeddings.shape[0] // 500)
