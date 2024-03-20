@@ -22,6 +22,7 @@ class Arguments():
         self.add_argument('--dropout', type=int, default=0.1)
         self.add_argument('--max_len', type=int, default=50)
         self.add_argument('--batch_size', type=int, default=256)
+        self.add_argument('--seq_len', type=int, default=16)
         self.add_argument('--epochs', type=int, default=3)
         self.add_argument('--eval_steps', type=int, default=250)
         self.add_argument('--seed', type=int, default=1234)

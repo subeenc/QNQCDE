@@ -381,17 +381,14 @@ class Loss():
         
         loss = []
         
-        for i in range(p.shape[0]): 
-            # by. kosimcse
-            pos_lhs_avg = torch.mean(p[i], dim=1) # bert.py 로 옮기기
-            neg_lhs_avg = torch.mean(n[i], dim=1)
+        for i in range(p.shape[0]): # p.shape[0]: batch_size
             
-            pos_cos_sim = self.cos(pos_lhs_avg.unsqueeze(1), pos_lhs_avg.unsqueeze(0)) / self.args.temperature
+            pos_cos_sim = self.cos(p[i].unsqueeze(1), p[i].unsqueeze(0)) / self.args.temperature
             mask_pos = torch.eye(pos_cos_sim.size(0)).bool().to(self.args.device)
             pos_cos_sim.masked_fill_(mask_pos, 0) # 대각행렬을 0으로 채움
             # print("=======pos_cos_sim: ", pos_cos_sim)
             
-            neg_cos_sim = self.cos(neg_lhs_avg.unsqueeze(1), neg_lhs_avg.unsqueeze(0)) / self.args.temperature
+            neg_cos_sim = self.cos(n[i].unsqueeze(1), n[i].unsqueeze(0)) / self.args.temperature
             mask_neg = torch.eye(neg_cos_sim.size(0)).bool().to(self.args.device)
             neg_cos_sim.masked_fill_(mask_neg, 0)
             # print("=======neg_cos_sim: ", neg_cos_sim)
