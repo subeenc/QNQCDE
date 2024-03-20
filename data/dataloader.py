@@ -54,8 +54,6 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
         self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
         #self.tokenizer_config = PlatoConfig.from_json_file("plato/config.json")
         
-        # CSV 파일 로드
-        self.load_data(self.file_path)
 
     def load_data(self, type):
         df = pd.read_csv(self.file_path)  # 확인용으로 10개만 추출
@@ -66,6 +64,7 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
         # valid, test
         self.dialogues = []
         self.labels = []
+        self.roles = []
         
         if type=='train':
             for _, row in df.iterrows():
@@ -73,26 +72,26 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
                 positive_pair = pair[0].split('|')  # Positive pair 분리
                 negative_pair = pair[1].split('|')[:len(positive_pair)]  # Negative pair 분리 (positive pair와 개수 동일하게)
                 label = [1] * len(positive_pair) + [0] * len(negative_pair)
+                role = row['turn']
                 
                 self.positive_pairs.append(positive_pair)
                 self.negative_pairs.append(negative_pair)
                 self.labels.append(label)
-            
-            # print('============self.positive_pairs===========')
-            # print(len(self.positive_pairs), self.positive_pairs)
+                self.roles.append(role)
+                
             self.positive_features = self.get_dialfeature(self.positive_pairs, self.type)
             self.negative_features = self.get_dialfeature(self.negative_pairs, self.type) 
-            # print('============self.positive_features===========')
-            # print(len(self.positive_features), self.positive_features)
         
         else:
             for _, row in df.iterrows():
                 pair = row['pairs'].split('||')
                 dialgoue = pair[0].split('|')
                 label = row['label'] # 여기서의 label은 domain label
+                role = row['turn']
                 
                 self.dialogues.append(dialgoue) # dialogue가 하나의 대화
                 self.labels.append(label) # label
+                self.roles.append(role)
             
             self.dialogues_features = self.get_dialfeature(self.dialogues, self.type)
             
@@ -102,50 +101,64 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
             pass
             
 
-    def get_dialfeature(self, pairs, type):  # 기존: data2tensor(self, line, type), pos, neg 각각 실행
+    def get_dialfeature(self, all_dial_pairs, type):  # 기존: data2tensor(self, line, type), pos, neg 각각 실행
         """
-        pairs 예시
-        
-        [
+        all_dial_pairs = [
+            
+            [pair1, pair2,...,pairN]  # 하나의 대화 내 pair들
             ['new contact add#name', "5''1'#eye color"],
             ["No, that is it, thanks so much!#You're welcome.", "5''1'#eye color"]
+            ...
+            전체 대화 개수
         ]
         """
-      
-        features = []
         
+        # 차후 config에 넣고 활용
+        line_sep_token = "\t"
+        sample_sep_token = "|"
+        turn_sep_token = "#" 
+        
+        use_response = False
+        features = []
         if type in ['train', 'valid', 'test']:
+            for dial_pairs, dial_role in zip(all_dial_pairs, self.roles):
+                
+                # all_dial_pairs: 전체 대화와 각 대화의 pair들이 존재하는 list of list 형태
+                # dial_pairs: 한 대화 내 pair들로 구성된 리스트
+                # pair: 한 대화 내 각 pair가 문자열로 구성 -> 한 pair는 두 개의 turn을 구성, #구분자로 분리 가능
             
-            for data_index, pair in enumerate(pairs):
-                bert_features_pair = []  # 대화 내 pair 여러개이므로 구분해주기 위해 list of list
+                # 한 대화 내 pair를 모두 담기 위한 list
+                sample_input_ids = []
+                sample_segment_ids = []
+                sample_role_ids = []
+                sample_input_mask = []
+                sample_turn_ids = []
+                sample_position_ids = []
                         
-                for t, turn in enumerate(pair):
-                    
-                    use_response = False
-    
-                    # 하나의 pair에 대한 role
-                    role_list = [1, 0]
-
-                    sample_input_ids = []
-                    sample_segment_ids = []
-                    sample_role_ids = []
-                    sample_input_mask = []
-                    sample_turn_ids = []
-                    sample_position_ids = [] 
-                    sample_tokens = [] 
-
+                for t, pair in enumerate(dial_pairs):
                     text_tokens = []
                     text_turn_ids = []
                     text_role_ids = []
                     text_segment_ids = []
                         
                     # config.turn_sep_token='#'
-                    text_list = turn.split('#')
+                    text_list = pair.split(turn_sep_token)
+                    
+                    # 하나의 pair에 대한 role
+                    # 하나의 pair에 존재하는 turn에 따라 role 구분
+                    # 0으로 padding되므로 role은 2,1 내림차순으로 생성 -> 다중대화에선 추출한 대화 인덱스 부분의 role 정보 필요
+                    # role_list = [2 if i % 2 == 0 else 1 for i in range(len(text_list))]
+                    role_list = [0, 1]
 
                     # token: token [eou] token [eou] [bos] token [eos]
                     # role:   0     0     1     1     0     0      0
                     # turn:   2     2     1     1     0     0      0
                     # pos:    0     1     0     1     0     1      2
+                    
+                    # bou: begin of utterance
+                    # eou: end of utterance
+                    # bos: begin of sentence
+                    # eos: end of sentence
                     bou, eou, bos, eos = "[unused0]", "[unused1]", "[unused0]", "[unused1]"
 
                     # use [CLS] as the latent variable of PLATO
@@ -171,99 +184,91 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
 
                         # limit the context length
                         # context = context[-self.args.max_context_length:]
-                        # context = context[-16:]  # 가장 최근 512개 턴만 유지(특정 길이 데이터 제한, hyperparameter 변경 필요)
+                        # context = context[-self.args.seq_len:]  # 가장 최근 512개 턴만 유지(특정 길이 데이터 제한, hyperparameter 변경 필요)
 
-                        '''
-                        use_response == False일 경우, 한 대화(샘플)에서 분리된 턴이 하나씩 들어감
-                        
-                        '''
-                        # 한 turn씩 반복
-                        for i, text in enumerate(context):
-                            # print(text)
-                            word_list = self.tokenizer.tokenize(text)
-                            uttr_len = len(word_list)
+                    '''
+                    use_response == False일 경우, 한 대화(샘플)에서 분리된 턴이 하나씩 들어감
+                    
+                    '''
+                    # 한 turn씩 반복
+                    for i, text in enumerate(context):
+                        # print(text)
+                        word_list = self.tokenizer.tokenize(text)
+                        uttr_len = len(word_list)
 
-                            end_token = eou
+                        end_token = eou
 
-                            role_id, turn_id = role_list[i], len(context) - i
+                        role_id, turn_id = role_list[i], len(context) - i
 
-                            text_tokens.extend(word_list + [end_token])
-                            text_role_ids.extend([role_id] * (uttr_len + 1))
-                            text_turn_ids.extend([turn_id] * (uttr_len + 1))
-                            text_segment_ids.extend([0] * (uttr_len + 1))
+                        text_tokens.extend(word_list + [end_token])
+                        text_role_ids.extend([role_id] * (uttr_len + 1))
+                        text_turn_ids.extend([turn_id] * (uttr_len + 1))
+                        text_segment_ids.extend([0] * (uttr_len + 1))
 
-                        
-                        text_tokens.extend(response_tokens)
-                        text_role_ids.extend(response_role_ids)
-                        text_turn_ids.extend(response_turn_ids)
-                        text_segment_ids.extend(response_segment_ids)
+                    
+                    text_tokens.extend(response_tokens)
+                    text_role_ids.extend(response_role_ids)
+                    text_turn_ids.extend(response_turn_ids)
+                    text_segment_ids.extend(response_segment_ids)
 
-                        if len(text_tokens) > 16:
-                            text_tokens = text_tokens[:16]
-                            text_turn_ids = text_turn_ids[:16]
-                            text_role_ids = text_role_ids[:16]
-                            text_segment_ids = text_segment_ids[:16]
+                    if len(text_tokens) > self.args.seq_len:
+                        text_tokens = text_tokens[:self.args.seq_len]
+                        text_turn_ids = text_turn_ids[:self.args.seq_len]
+                        text_role_ids = text_role_ids[:self.args.seq_len]
+                        text_segment_ids = text_segment_ids[:self.args.seq_len]
 
-                        #  max_context_length=15
-                        assert (max(text_turn_ids) <= 15)
+                    #  max_context_length=15
+                    assert (max(text_turn_ids) <= 15)
 
-                        # 制作text_position_id序列  -> Make text_position_id sequence
-                        text_position_ids = []
-                        text_position_id = 0
-                        for i, turn_id in enumerate(text_turn_ids):
-                            # print(i, turn_id)
-                            if i != 0 and turn_id < text_turn_ids[i - 1]:   # PLATO
-                                text_position_id = 0
-                            # print(text_position_id)
-                            text_position_ids.append(text_position_id)
-                            text_position_id += 1
-                        
+                    # 制作text_position_id序列  -> Make text_position_id sequence
+                    text_position_ids = []
+                    text_position_id = 0
+                    for i, turn_id in enumerate(text_turn_ids):
+                        if i != 0 and turn_id < text_turn_ids[i - 1]:   # PLATO
+                            text_position_id = 0
+                        text_position_ids.append(text_position_id)
+                        text_position_id += 1
+                    
 
-                        # max_turn_id = max(text_turn_ids)
-                        # text_turn_ids = [max_turn_id - t for t in text_turn_ids]
+                    # max_turn_id = max(text_turn_ids)
+                    # text_turn_ids = [max_turn_id - t for t in text_turn_ids]
 
-                        text_input_ids = self.tokenizer.convert_tokens_to_ids(text_tokens)
-                        text_input_mask = [1] * len(text_input_ids)
-                        
+                    text_input_ids = self.tokenizer.convert_tokens_to_ids(text_tokens)
+                    text_input_mask = [1] * len(text_input_ids)
+                    
 
-                        # Zero-pad up to the sequence length.
-                        while len(text_input_ids) < 16:
-                            text_input_ids.append(0)
-                            text_turn_ids.append(0)
-                            text_role_ids.append(0)
-                            text_segment_ids.append(0)
-                            text_position_ids.append(0)
-                            text_input_mask.append(0)
+                    # Zero-pad up to the sequence length.
+                    while len(text_input_ids) < self.args.seq_len:
+                        text_input_ids.append(0)
+                        text_turn_ids.append(0)
+                        text_role_ids.append(0)
+                        text_segment_ids.append(0)
+                        text_position_ids.append(0)
+                        text_input_mask.append(0)
 
-                        # max_context_lengt=512
-                        assert len(text_input_ids) == 16
-                        assert len(text_turn_ids) == 16
-                        assert len(text_role_ids) == 16
-                        assert len(text_segment_ids) ==16
-                        assert len(text_position_ids) == 16
-                        assert len(text_input_mask) == 16
-                        
-                        sample_input_ids.append(text_input_ids)
-                        sample_turn_ids.append(text_turn_ids)
-                        sample_role_ids.append(text_role_ids)
-                        sample_segment_ids.append(text_segment_ids)
-                        sample_position_ids.append(text_position_ids)
-                        sample_input_mask.append(text_input_mask)
-                        sample_tokens.append(text_tokens)
+                    # max_context_lengt=512
+                    assert len(text_input_ids) == self.args.seq_len
+                    assert len(text_turn_ids) == self.args.seq_len
+                    assert len(text_role_ids) == self.args.seq_len
+                    assert len(text_segment_ids) ==self.args.seq_len
+                    assert len(text_position_ids) == self.args.seq_len
+                    assert len(text_input_mask) == self.args.seq_len
+                    
+                    sample_input_ids.append(text_input_ids)
+                    sample_turn_ids.append(text_turn_ids)
+                    sample_role_ids.append(text_role_ids)
+                    sample_segment_ids.append(text_segment_ids)
+                    sample_position_ids.append(text_position_ids)
+                    sample_input_mask.append(text_input_mask)
 
-                    bert_feature = DialogueFeatures(input_ids=sample_input_ids,
-                                                input_mask=sample_input_mask,
-                                                segment_ids=sample_segment_ids,
-                                                role_ids=sample_role_ids,
-                                                turn_ids=sample_turn_ids,
-                                                position_ids=sample_position_ids)
+                bert_feature = DialogueFeatures(input_ids=sample_input_ids,
+                                            input_mask=sample_input_mask,
+                                            segment_ids=sample_segment_ids,
+                                            role_ids=sample_role_ids,
+                                            turn_ids=sample_turn_ids,
+                                            position_ids=sample_position_ids)
 
-                    bert_features_pair.append(bert_feature)
-                features.append(bert_features_pair)
-            
-        else:
-            pass      
-        
+                features.append(bert_feature)        
         return features
 
     def __getitem__(self, idx):
@@ -275,66 +280,31 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
         if self.type=='train':
             
             # 선택된 대화 샘플을 반환
-            positive_features = self.positive_features[idx]
+            positive_features = self.positive_features[idx]        
             negative_features = self.negative_features[idx]
             
-            # positive_features는 DialogueFeatures 객체의 리스트
-            all_pos_input_ids = list(itertools.chain.from_iterable(feature.input_ids for feature in positive_features))
-            all_pos_input_mask = list(itertools.chain.from_iterable(feature.input_mask for feature in positive_features))
-            all_pos_segment_ids = list(itertools.chain.from_iterable(feature.segment_ids for feature in positive_features))
-            all_pos_role_ids = list(itertools.chain.from_iterable(feature.role_ids for feature in positive_features))
-            all_pos_turn_ids = list(itertools.chain.from_iterable(feature.turn_ids for feature in positive_features))
-            all_pos_position_ids = list(itertools.chain.from_iterable(feature.position_ids for feature in positive_features))
-            
-            all_neg_input_ids = list(itertools.chain.from_iterable(feature.input_ids for feature in negative_features))
-            all_neg_input_mask = list(itertools.chain.from_iterable(feature.input_mask for feature in negative_features))
-            all_neg_segment_ids = list(itertools.chain.from_iterable(feature.segment_ids for feature in negative_features))
-            all_neg_role_ids = list(itertools.chain.from_iterable(feature.role_ids for feature in negative_features))
-            all_neg_turn_ids = list(itertools.chain.from_iterable(feature.turn_ids for feature in negative_features))
-            all_neg_position_ids = list(itertools.chain.from_iterable(feature.position_ids for feature in negative_features))
-        
-            # 하나의 대화 샘플에 대한 정보 반환
-            
             inputs = {'positive':{
-                            'input_ids':torch.LongTensor(all_pos_input_ids),
-                            #'input_mask':torch.LongTensor(all_pos_input_mask),
-                            #'segment_ids':torch.LongTensor(all_pos_segment_ids),
-                            'role_ids':torch.LongTensor(all_pos_role_ids),
-                            'turn_ids':torch.LongTensor(all_pos_turn_ids),
-                            #'position_ids':torch.LongTensor(all_pos_position_ids)
-                        },
+                        'input_ids':torch.LongTensor(positive_features.input_ids),
+                        'role_ids':torch.LongTensor(positive_features.role_ids),
+                        'turn_ids':torch.LongTensor(positive_features.turn_ids),
+                    },
                     'negative':{
-                            'input_ids':torch.LongTensor(all_neg_input_ids),
-                            #'input_mask':torch.LongTensor(all_neg_input_mask),
-                            #'segment_ids':torch.LongTensor(all_neg_segment_ids),
-                            'role_ids':torch.LongTensor(all_neg_role_ids),
-                            'turn_ids':torch.LongTensor(all_neg_turn_ids),
-                            #'position_ids':torch.LongTensor(all_neg_position_ids)
-                        }
-                    }
+                        'input_ids':torch.LongTensor(negative_features.input_ids),
+                        'role_ids':torch.LongTensor(negative_features.role_ids),
+                        'turn_ids':torch.LongTensor(negative_features.turn_ids),
+                    },
+            }
+        
         else:
             dialogues_features = self.dialogues_features[idx]
             labels = self.labels[idx]
             # print("===== labels = self.labels[idx]")
             # print(labels)
-            
-            all_dial_input_ids = list(itertools.chain.from_iterable(feature.input_ids for feature in dialogues_features))
-            all_dial_input_mask = list(itertools.chain.from_iterable(feature.input_mask for feature in dialogues_features))
-            all_dial_segment_ids = list(itertools.chain.from_iterable(feature.segment_ids for feature in dialogues_features))
-            all_dial_role_ids = list(itertools.chain.from_iterable(feature.role_ids for feature in dialogues_features))
-            all_dial_turn_ids = list(itertools.chain.from_iterable(feature.turn_ids for feature in dialogues_features))
-            all_dial_position_ids = list(itertools.chain.from_iterable(feature.position_ids for feature in dialogues_features))
-            
                     
             inputs = {'dialogue':{
-                            'input_ids':torch.LongTensor(all_dial_input_ids),
-                            #'input_mask':torch.LongTensor(all_pos_input_mask),
-                            #'segment_ids':torch.LongTensor(all_pos_segment_ids),
-                            'role_ids':torch.LongTensor(all_dial_role_ids),
-                            'turn_ids':torch.LongTensor(all_dial_turn_ids),
-                            #'position_ids':torch.LongTensor(all_pos_position_ids)
-                            'turn_ids':torch.LongTensor(all_dial_turn_ids)
-                            #'label_ids': torch.tensor(labels, dtype=torch.float)
+                        'input_ids':torch.LongTensor(dialogues_features.input_ids),
+                        'role_ids':torch.LongTensor(dialogues_features.role_ids),
+                        'turn_ids':torch.LongTensor(dialogues_features.turn_ids),
                         },
                       'label': torch.tensor(labels, dtype=torch.float)
                     }
@@ -362,7 +332,7 @@ def custom_collate_fn_train(batch):
     neg_input_ids = pad_sequence([torch.tensor(sample['negative']['input_ids']) for sample in batch], batch_first=True, padding_value=0)
     neg_role_ids = pad_sequence([torch.tensor(sample['negative']['role_ids']) for sample in batch], batch_first=True, padding_value=0)
     neg_turn_ids = pad_sequence([torch.tensor(sample['negative']['turn_ids']) for sample in batch], batch_first=True, padding_value=0)
-
+    
     # 모든 특성에 대한 패딩 적용 후 최종 배치 데이터 구성
     batched_data = {
         'positive': {
@@ -412,18 +382,20 @@ def get_loader(args, metric):
     if args.train == 'True' and args.test == 'False':
         train_iter = DialogueDataset(path_to_train_data, args, metric, type='train') # type='train'
         valid_iter = DialogueDataset(path_to_valid_data, args, metric, type='valid') # type='valid'
-
+        
         train_iter.load_data('train')
         valid_iter.load_data('valid')
 
         loader = {'train': DataLoader(dataset=train_iter,
                                       batch_size=args.batch_size,
                                       shuffle=True,
-                                      collate_fn=custom_collate_fn_train),
+                                      collate_fn=custom_collate_fn_train,
+                                      drop_last=True),
                   'valid': DataLoader(dataset=valid_iter,
                                       batch_size=args.batch_size,
                                       shuffle=True,
-                                      collate_fn=custom_collate_fn_test)}
+                                      collate_fn=custom_collate_fn_test,
+                                      drop_last=True)}
 
     elif args.train == 'False' and args.test == 'True':
         test_iter = DialogueDataset(path_to_test_data, args, metric, type='test') # type='test'
@@ -432,7 +404,8 @@ def get_loader(args, metric):
         loader = {'test': DataLoader(dataset=test_iter,
                                      batch_size=args.batch_size,
                                      shuffle=True,
-                                     collate_fn=custom_collate_fn_test)}
+                                     collate_fn=custom_collate_fn_test,
+                                     drop_last=True)}
 
     else:
         loader = None
