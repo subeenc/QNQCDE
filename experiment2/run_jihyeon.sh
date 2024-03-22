@@ -12,9 +12,9 @@ python main.py \
   --lr 0.0001 \
   --warmup_ratio 0.05 \
   --temperature 0.2 \
-  --path_to_data /home/jihyeon41/datasets \
-  --train_data sgd_train_with_pairs.csv \
-  --valid_data sgd_clustering_dev_with_pairs.csv 
+  --path_to_data /home/jihyeon41/research_dial_embedding/dial2vec_git/dial2vec/datasets/sgd \
+  --train_data train.tsv \
+  --valid_data clustering_dev.tsv
 
 # echo "Start Testing"
 

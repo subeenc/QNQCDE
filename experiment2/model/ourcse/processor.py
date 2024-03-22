@@ -50,7 +50,7 @@ class Processor():
         logger = logging.getLogger(__name__)
         self.logger = logger
     
-    def run(self, inputs, type=None, tasks: List[str] = None):
+    def run(self, inputs, labels=None, type=None, tasks: List[str] = None):
     
 
         if type == 'train':
@@ -63,8 +63,8 @@ class Processor():
         
         
         else:
-            dialgoue_embeddings = self.config['model'](inputs, type, self.args.batch_size, self.args.seq_len)
-            pooled_dialgoue_embeddings = torch.sum(dialgoue_embeddings, dim=1) # torch.Size([4, 768])
+            # dialgoue_embeddings = self.config['model'](inputs, type, self.args.batch_size, self.args.seq_len)
+            # pooled_dialgoue_embeddings = torch.sum(dialgoue_embeddings, dim=1) # torch.Size([4, 768])
             
             # print("===== dialgoue_embeddings, inputs['label'] =====")
             # print(inputs['label'])
@@ -75,11 +75,14 @@ class Processor():
             
             best_evaluation_result = self.best_test_evaluation_result if type == 'test' else self.best_dev_evaluation_result
             evaluation_result = EvaluationResult()
+            # print("================inputs, labels================")   
+            # print(inputs.shape)
+            # print(labels.shape)
             
             if 'clustering' in tasks:
-                n_average = max(3, 10 - pooled_dialgoue_embeddings.shape[0] // 500)
-                er = self.loss.evaluation_during_training(features=pooled_dialgoue_embeddings,
-                                                          labels=inputs['label'],
+                n_average = max(3, 10 - inputs.shape[0] // 500)
+                er = self.loss.evaluation_during_training(features=inputs,
+                                                          labels=labels,
                                                           gpu_features=None,
                                                           n_average=n_average,
                                                           tasks=['clustering'],
@@ -192,7 +195,7 @@ class Processor():
     def model_setting(self):
         model, loader, tokenizer = get_loader(self.args, self.metric) # 데이터로더 가져오는 부분 /data/dataloader.py
         model = BERT(model) # 사전학습된 bert 모델이나 가중치가 사용되면 여기서는 skt가 학습했던 kobert가 들어가는 것으로 판단
-        print("cuda",torch.cuda.current_device())
+        # print("cuda",torch.cuda.current_device())
         model.to(self.args.device)
 
         criterion, optimizer = self.get_object(tokenizer, model)
@@ -247,11 +250,13 @@ class Processor():
 
             self.progress(train_loss.data)
 
+            # print("==============self.args.eval_steps, self.model_progress['iter']==============")
+            # print(self.args.eval_steps )
+            # print(self.model_progress['iter']) # = globel_step
+            
             if self.model_progress['iter'] % self.args.eval_steps == 0 or self.model_progress['iter'] == self.total_steps:
-                valid_score = self.valid()
-                performance = {'tl': train_loss, 'vs': valid_score, 'ep': epoch, 'step': self.model_progress['iter']}
+                self.valid()
                 
-                #self.metric.save_model(self.config, performance, self.model_checker)
                 self.config['model'].train()
   
     def valid(self):
@@ -270,38 +275,39 @@ class Processor():
         #             'eval_uniformity': 0}
     
         with torch.no_grad():
+            
+            all_dialgoue_embeddings = []
+            all_dialgoue_labels = []
+            
             for step, batch in enumerate(self.config['loader']['valid']):
+                # print("step:", step)
                 inputs = batch
-                is_best, dev_evaluation_result = self.run(inputs, type='valid',
+                
+                dialgoue_embeddings = self.config['model'](inputs, type, self.args.batch_size, self.args.seq_len)
+                pooled_dialgoue_embeddings = torch.sum(dialgoue_embeddings, dim=1) # torch.Size([4, 768])
+                all_dialgoue_embeddings.append(pooled_dialgoue_embeddings)
+                all_dialgoue_labels.append(inputs['label'])
+                            
+            all_dialgoue_embeddings = torch.cat(all_dialgoue_embeddings, dim=0) 
+            all_dialgoue_labels = torch.cat(all_dialgoue_labels, dim=0)
+            
+            is_best, dev_evaluation_result = self.run(all_dialgoue_embeddings, labels=all_dialgoue_labels, type='valid',
                                  tasks=['clustering', 'semantic_relatedness'])#, 'semantic_relatedness', 'session_retrieval', 'align_uniform'])
                 
                 
-                if is_best:
-                    self.best_dev_evaluation_result.update(dev_evaluation_result)
-                    # self.best_dev_evaluation_result.show(logger=self.logger, note=type)
+            if is_best:
+                self.best_dev_evaluation_result.update(dev_evaluation_result)
+                # self.best_dev_evaluation_result.show(logger=self.logger, note=type)
 
             # self.best_dev_evaluation_result.update(best_evaluation_result)
             # best_evaluation_result.show(logger=self.logger,note=type)             
                     
         self.best_dev_evaluation_result.show(logger=logger, note='valid')
-        # score = self.metric.cal_dev_score(self.dev_progress, score_indicator)
-        # return score
 
     def test(self):
         self.config['model'].load_state_dict(torch.load(self.args.path_to_saved_model)['model'], strict=False)
         self.config['model'].eval()
         self.dev_progress = self.dev_progress.fromkeys(self.dev_progress, 0)
-        
-        score_indicator = {'eval_RI': 0,
-                    'eval_NMI': 0,
-                    'eval_acc': 0,
-                    'eval_purity': 0,
-                    'eval_SR': 0,
-                    'eval_MRR': 0,
-                    'eval_MAP': 0,
-                    'eval_alignment': 0,
-                    'eval_adjusted_alignment': 0,
-                    'eval_uniformity': 0}
 
         with torch.no_grad():
             for step, batch in enumerate(self.config['loader']['test']):
