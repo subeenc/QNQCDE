@@ -1,8 +1,8 @@
 from model.setting import Setting, Arguments
 from model.ourcse.processor import Processor
-import os
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 
-os.environ["CUDA_VISIBLE_DEVICES"]= "2,3" 
+# import os
+# os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 
+# os.environ["CUDA_VISIBLE_DEVICES"]= "2,3" 
 
 def main(args, logger) -> None:
     processor = Processor(args)
