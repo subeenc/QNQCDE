@@ -63,7 +63,7 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
         '''
         column_names = ['turn', 'conversation', 'label']
         df = pd.read_csv(self.file_path, sep='\t', header=None, names=column_names)
-        # df = df[:12]
+        df = df[:4]
         
         pairgenerator = PairGenerator(random_seed=42)
         data = pairgenerator.generate_pairs_for_dataset(df)
