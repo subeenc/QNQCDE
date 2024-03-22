@@ -58,12 +58,14 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
 
     def load_data(self, type):
         '''
-        data = [("How do I get a new one?#To request a new card please send us an email at vic@va.gov#yes I was in the Army#Did you receive an honorable or general discharge under honorable conditions?#no I did not#I am sorry but you are not eligible for a Veteran ID Card||You said to me before that i should return the benefits of my deseaced spouse, is that right?#To request a new card please send us an email at vic@va.gov#Ok. i'll get into it. Now, can i apply for these benefits even if i'm outside the U.S?#Did you receive an honorable or general discharge under honorable conditions?#Gosh, you really have many options there. I'll have to check them out carefully. Again with those group insurance, as same as me, they can find out their plan in that company's site?#I am sorry but you are not eligible for a Veteran ID Card|What if the adult child is already receiving SSI benefits or disability benefits on his or her own record?#To request a new card please send us an email at vic@va.gov#Where can I find more information and support?#Did you receive an honorable or general discharge under honorable conditions?#Hi, can you tell me something about the private service bureau licenses?#I am sorry but you are not eligible for a Veteran ID Card|I also need to be registered for the draft, right?#To request a new card please send us an email at vic@va.gov#which is the topic#Did you receive an honorable or general discharge under honorable conditions?#Are there any requirements that need to be met to qualify for the program? #I am sorry but you are not eligible for a Veteran ID Card|Will I need a valid passport for studying abroad?#To request a new card please send us an email at vic@va.gov#not yet.  How do I access VA services for MST?#Did you receive an honorable or general discharge under honorable conditions?#Can you tell me anything about the disability benefits application process for a child?#I am sorry but you are not eligible for a Veteran ID Card|Thank you. I now ordered my driver license but it still hasn't arrived. What can i do?#To request a new card please send us an email at vic@va.gov#Yes, I have my birth certificate.#Did you receive an honorable or general discharge under honorable conditions?#So, what if my car is exempt from the CA emissions standard?#I am sorry but you are not eligible for a Veteran ID Card|My school didn't give me the right amount of financial aid. Who do I talk to to get it fixed?#To request a new card please send us an email at vic@va.gov#Yes, I am.#Did you receive an honorable or general discharge under honorable conditions?#What risk is there if I had exposure through project 112 or project SHAD?#I am sorry but you are not eligible for a Veteran ID Card|yes#To request a new card please send us an email at vic@va.gov#you can give us info on the parent plus loan#Did you receive an honorable or general discharge under honorable conditions?#I wonder if I have to have an account before I can register?#I am sorry but you are not eligible for a Veteran ID Card|What should I do before I sell my vehicle?#To request a new card please send us an email at vic@va.gov#Yes, I meet both of the requirements #Did you receive an honorable or general discharge under honorable conditions?#What do I do when I download your VA welcome kit?#I am sorry but you are not eligible for a Veteran ID Card|Is there anything else?#To request a new card please send us an email at vic@va.gov#i will also bring proof of insurance and my id card#Did you receive an honorable or general discharge under honorable conditions?#I lost my plate, what should I do?#I am sorry but you are not eligible for a Veteran ID Card",
+        data = [("How do I get a new one?#To request a new card please send us an email at vic@va.gov#yes I was in the Army#Did you receive an honorable or general discharge under honorable conditions?#no I did not#I am sorry but you are not eligible for a Veteran ID Card||You said to me before that i should return the benefits of my deseaced spouse, is that right?#To request a new card please send us an email at vic@va.gov#",
         '101010'),...("pos_neg_pairs", "turns")]
         '''
         column_names = ['turn', 'conversation', 'label']
+        print("==========================self.file_path=======================")
+        print(self.file_path)
         df = pd.read_csv(self.file_path, sep='\t', header=None, names=column_names)
-        df = df[:12]
+        df = df[:4]
         
         pairgenerator = PairGenerator(random_seed=42)
         data = pairgenerator.generate_pairs_for_dataset(df)
@@ -80,8 +82,8 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
         if type=='train':
             for row in data:
                 pair = row[0].split('||')
-                negative_pair = pair[1].split('|')  # Negative pair 분리
-                positive_pair = [pair[0]] * len(negative_pair) # Positive pair 분리
+                positive_pair = pair[0].split('|')  # Positive pair 분리
+                negative_pair = pair[1].split('|')[:len(positive_pair)]  # Negative pair 분리 (positive pair와 개수 동일하게)
                 
                 label = [1] * len(positive_pair) + [0] * len(negative_pair)
                 role = row[1]

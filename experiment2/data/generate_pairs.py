@@ -49,21 +49,46 @@ class PairGenerator:
         :param negative_conversations: List of strings representing negative conversations.
         :return: String containing positive and negative pairs separated by '||'.
         """
-        # 등장 횟수가 가장 많은 대화자를 기준으로 idx 추출
-        basis_interlocutor = Counter(turn).most_common(1)[0][0]
-        basis_interlocutor_turn_idx = [i for i, char in enumerate(turn) if char == basis_interlocutor]
-
-        # 추출 샘플 수는 기준 대화자 발화의 절반(반올림)
-        sample_num = round(len(basis_interlocutor_turn_idx) / 2)
-        idx = random.sample(basis_interlocutor_turn_idx, sample_num)
-        idx.sort()
         
+        # 등장 횟수가 가장 많은 대화자를 기준으로 idx 추출
+        basis_interlocutors = Counter(turn).most_common(len(turn))        
+                
+        idx = []
+        pos_samples = []
+        neg_samples = []
+        neg_interlocutors = []
+        interlocutors_turns = []
+        for interlocutor, _ in basis_interlocutors:
+            interlocutor_idx = [i for i, char in enumerate(turn) if char == interlocutor]
+            # 추출 샘플 수는 기준 대화자의 절반
+            sample_num = len(interlocutor_idx) // 2
+            idx = random.sample(interlocutor_idx, sample_num)
+            idx.sort()
+            
+            # print("==================================대화자 정보===========================================")
+            # print("대화자",interlocutor)
+            # print("idx",idx)
+            # print("sample_num",sample_num)
+            
+            pos_sample, interlocutors_turn = self.extract_turns(positive_conversation, idx, turn)
+            neg_sample = [self.extract_turns(neg_conv, idx, turn)[0] for neg_conv in negative_conversations]
+            
+            pos_samples.append(pos_sample)
+            neg_samples.extend(neg_sample)
+            interlocutors_turns.append(interlocutors_turn)
+    
         # 기준 대화자의 발화 시점을 사용하여 positive 및 negative 샘플 생성
-        pos_sample, interlocutors_turn = self.extract_turns(positive_conversation, idx, turn)
-        neg_samples = [self.extract_turns(neg_conv, idx, turn)[0] for neg_conv in negative_conversations]
+        pos_samples_joined = '|'.join(pos_samples)
         neg_samples_joined = '|'.join(neg_samples)
         
-        pos_neg_pairs = f"{pos_sample}||{neg_samples_joined}"
+        # print("==========================pos_samples==========================")
+        # print(pos_samples_joined)
+        # print("==========================neg_samples==========================")
+        # print(neg_samples_joined)
+        
+        
+        # 최종 output
+        pos_neg_pairs = f"{pos_samples_joined}||{neg_samples_joined}"
 
         return pos_neg_pairs, interlocutors_turn
     
@@ -73,5 +98,11 @@ class PairGenerator:
         """
         df['turn'] = df['turn'].astype('str')
         df['pairs'] = df.progress_apply(lambda row: self.generate_pairs(row['turn'], row['conversation'].split('|')[0], row['conversation'].split('|')[1:]), axis=1)
-        # df.to_csv(f'{self.datasetname}_train_with_pairs.csv', index=False)
+        
+        # print("===================conversation check=================")
+        # print("positive\n",df['conversation'].loc[0].split('|')[0])
+        # print("negative\n",df['conversation'].loc[0].split('|')[1:])
+        # print("pairs\n", df['pairs'].loc[0])
+        # df.to_csv(f'mwoz_train_with_pairs.csv', index=False)
+        
         return df['pairs']
