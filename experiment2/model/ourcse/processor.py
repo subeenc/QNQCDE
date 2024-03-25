@@ -98,7 +98,7 @@ class Processor():
 
             # based on acc, plz ref metrics.py->EvaluationResult.__lr__()
             is_best = True if evaluation_result > best_evaluation_result else False
-            print("is_best:", is_best)   
+            # print("is_best:", is_best)   
                 
             if 'semantic_relatedness' in tasks or 'session_retrieval' in tasks:
                 #if type == 'test':
@@ -194,7 +194,7 @@ class Processor():
 
     def model_setting(self):
         model, loader, tokenizer = get_loader(self.args, self.metric) # 데이터로더 가져오는 부분 /data/dataloader.py
-        model = BERT(model) # 사전학습된 bert 모델이나 가중치가 사용되면 여기서는 skt가 학습했던 kobert가 들어가는 것으로 판단
+        # model = BERT(model) # 사전학습된 bert 모델이나 가중치가 사용되면 여기서는 skt가 학습했던 kobert가 들어가는 것으로 판단
         model.to(self.args.device)
 
         criterion, optimizer = self.get_object(tokenizer, model)

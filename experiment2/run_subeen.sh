@@ -4,6 +4,8 @@ echo "Start Training"
 
 python experiment2/main.py \
   --test False \
+  --init_checkpoint "/home/subeen40/subeen/research/SimCDE/experiment2/model/PLATO.pt" \
+  --config_file "/home/subeen40/subeen/research/SimCDE/experiment2/model/plato/config.json" \
   --max_len 50 \
   --batch_size 4 \
   --seq_len 64 \
@@ -12,7 +14,7 @@ python experiment2/main.py \
   --lr 0.0001 \
   --warmup_ratio 0.05 \
   --temperature 0.2 \
-  --path_to_data  /home/subeen40/cl_research/dial2vec_40/datasets/mwoz \
+  --path_to_data  /home/subeen40/cl_research/dial2vec_40/datasets/sgd \
   --train_data train.tsv \
   --valid_data clustering_dev.tsv
 
