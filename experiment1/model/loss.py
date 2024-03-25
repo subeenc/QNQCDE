@@ -77,6 +77,9 @@ class EvaluationResult(OrderedDict):
         self.SR = new_result.SR
         self.MRR = new_result.MRR
         self.MAP = new_result.MAP
+        self.alignment = new_result.alignment
+        self.adjusted_alignment = new_result.adjusted_alignment
+        self.uniformity = new_result.uniformity
 
     def show(self, logger=None, note=None):
         if logger is not None:
@@ -333,6 +336,7 @@ def align_uniform(normalized_features, labels=None, device='cpu'):
         assert (M_y.shape[0] == M_y.shape[1])
 
         scores_from_subject = (M_y == M_y.T).astype(bool)  # .reshape(-1)
+        
     else:
         labels = labels.view(-1, 1)
         M_y = labels.repeat(1, labels.shape[0])
@@ -360,9 +364,8 @@ def align_uniform(normalized_features, labels=None, device='cpu'):
         n_positive += n_pos
         negative_alignment += neg_align
         n_negative += n_neg
-
-        uniformity += uniform_loss(torch.cat([feat1, feat2], dim=-1),
-                                   t=2)
+        
+        uniformity += uniform_loss(torch.cat([feat1, feat2], dim=-1), t=2)
 
     positive_alignment /= n_positive
     negative_alignment /= n_negative
@@ -519,10 +522,12 @@ class Loss():
                 alignment, adjusted_alignment, uniformity = align_uniform(normalized_features=normalized_features,
                                                                         labels=labels,
                                                                         device='cpu')
+                
             align_uniform_time = time() - pre
             # logger.info("Align_Uniform Time Costs: %s " % align_uniform_time)
 
         if logger is not None:
+            
             logger.info("\nclustering_task [%s]: RI: %s NMI: %s Acc: %s Purity: %s" % (note, RI, NMI, acc, purity))
             logger.info("\nSemantic Relatedness [%s]: SR: %s" % (note, SR))
             logger.info("\nSession Retrieval [%s]: MRR: %s MAP: %s" % (note, MRR, MAP))

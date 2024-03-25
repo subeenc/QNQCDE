@@ -101,36 +101,36 @@ class Processor():
             # print("is_best:", is_best)   
                 
             if 'semantic_relatedness' in tasks or 'session_retrieval' in tasks:
-                if type == 'test':
-                    er = self.loss.evaluation_during_training(features=pooled_dialgoue_embeddings,
-                                                            labels=inputs['label'],
-                                                            gpu_features=None,
-                                                            n_average=n_average,
-                                                            tasks=['semantic_relatedness', 'session_retrieval'],
-                                                            dtype='float32',
-                                                            tsne_visualization_output=None,
-                                                            logger=None,
-                                                            note=type)
-                    
-                    evaluation_result.SR = er.SR
-                    evaluation_result.MRR = er.MRR
-                    evaluation_result.MAP = er.MAP
+                #if type == 'test':
+                er = self.loss.evaluation_during_training(features=inputs,
+                                                        labels=labels,
+                                                        gpu_features=None,
+                                                        n_average=n_average,
+                                                        tasks=['semantic_relatedness', 'session_retrieval'],
+                                                        dtype='float32',
+                                                        tsne_visualization_output=None,
+                                                        logger=None,
+                                                        note=type)
+                
+                evaluation_result.SR = er.SR
+                evaluation_result.MRR = er.MRR
+                evaluation_result.MAP = er.MAP
 
             if 'align_uniform' in tasks:
-                if type == 'test':
-                    er = self.loss.evaluation_during_training(features=pooled_dialgoue_embeddings,
-                                                            labels=inputs['label'],
-                                                            gpu_features=None,
-                                                            n_average=n_average,
-                                                            tasks=['align_uniform'],
-                                                            dtype='float32',
-                                                            tsne_visualization_output=None,
-                                                            logger=None,
-                                                            note=type)
+                #if type == 'test':
+                er = self.loss.evaluation_during_training(features=inputs,
+                                                        labels=labels,
+                                                        gpu_features=None,
+                                                        n_average=n_average,
+                                                        tasks=['align_uniform'],
+                                                        dtype='float32',
+                                                        tsne_visualization_output=None,
+                                                        logger=None,
+                                                        note=type)
 
-                    evaluation_result.alignment = er.alignment
-                    evaluation_result.adjusted_alignment = er.adjusted_alignment
-                    evaluation_result.uniformity = er.uniformity
+                evaluation_result.alignment = er.alignment.item()
+                evaluation_result.adjusted_alignment = er.adjusted_alignment.item()
+                evaluation_result.uniformity = er.uniformity.item()
 
             # print("=======best_evaluation_result==========")
             # print(best_evaluation_result)

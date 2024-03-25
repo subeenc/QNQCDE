@@ -56,8 +56,9 @@ class DialogueDataset():
  
     def load_data(self):
         column_names = ['turn', 'conversation', 'label']
+
         df = pd.read_csv(self.file_path, sep='\t', header=None, names=column_names)[:12]
-        
+
         tqdm_pandas = tqdm(total=len(df), desc="Processing")
 
         def update_progress(row):

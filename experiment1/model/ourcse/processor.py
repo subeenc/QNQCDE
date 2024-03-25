@@ -101,36 +101,36 @@ class Processor():
             print("is_best:", is_best)   
                 
             if 'semantic_relatedness' in tasks or 'session_retrieval' in tasks:
-                if type == 'test':
-                    er = self.loss.evaluation_during_training(features=pooled_dialgoue_embeddings,
-                                                            labels=inputs['label'],
-                                                            gpu_features=None,
-                                                            n_average=n_average,
-                                                            tasks=['semantic_relatedness', 'session_retrieval'],
-                                                            dtype='float32',
-                                                            tsne_visualization_output=None,
-                                                            logger=None,
-                                                            note=type)
-                    
-                    evaluation_result.SR = er.SR
-                    evaluation_result.MRR = er.MRR
-                    evaluation_result.MAP = er.MAP
+                #if type == 'test':
+                er = self.loss.evaluation_during_training(features=inputs,
+                                                        labels=labels,
+                                                        gpu_features=None,
+                                                        n_average=n_average,
+                                                        tasks=['semantic_relatedness', 'session_retrieval'],
+                                                        dtype='float32',
+                                                        tsne_visualization_output=None,
+                                                        logger=None,
+                                                        note=type)
+                
+                evaluation_result.SR = er.SR
+                evaluation_result.MRR = er.MRR
+                evaluation_result.MAP = er.MAP
 
             if 'align_uniform' in tasks:
-                if type == 'test':
-                    er = self.loss.evaluation_during_training(features=pooled_dialgoue_embeddings,
-                                                            labels=inputs['label'],
-                                                            gpu_features=None,
-                                                            n_average=n_average,
-                                                            tasks=['align_uniform'],
-                                                            dtype='float32',
-                                                            tsne_visualization_output=None,
-                                                            logger=None,
-                                                            note=type)
-
-                    evaluation_result.alignment = er.alignment
-                    evaluation_result.adjusted_alignment = er.adjusted_alignment
-                    evaluation_result.uniformity = er.uniformity
+                #if type == 'test':
+                er = self.loss.evaluation_during_training(features=inputs,
+                                                        labels=labels,
+                                                        gpu_features=None,
+                                                        n_average=n_average,
+                                                        tasks=['align_uniform'],
+                                                        dtype='float32',
+                                                        tsne_visualization_output=None,
+                                                        logger=None,
+                                                        note=type)
+                
+                evaluation_result.alignment = er.alignment.item()
+                evaluation_result.adjusted_alignment = er.adjusted_alignment.item()
+                evaluation_result.uniformity = er.uniformity.item()
 
             # print("=======best_evaluation_result==========")
             # print(best_evaluation_result)
@@ -195,7 +195,6 @@ class Processor():
     def model_setting(self):
         model, loader, tokenizer = get_loader(self.args, self.metric) # 데이터로더 가져오는 부분 /data/dataloader.py
         model = BERT(model) # 사전학습된 bert 모델이나 가중치가 사용되면 여기서는 skt가 학습했던 kobert가 들어가는 것으로 판단
-        # print("cuda",torch.cuda.current_device())
         model.to(self.args.device)
 
         criterion, optimizer = self.get_object(tokenizer, model)
@@ -292,11 +291,11 @@ class Processor():
             all_dialgoue_labels = torch.cat(all_dialgoue_labels, dim=0)
             
             is_best, dev_evaluation_result = self.run(all_dialgoue_embeddings, labels=all_dialgoue_labels, type='valid',
-                                 tasks=['clustering', 'semantic_relatedness'])#, 'semantic_relatedness', 'session_retrieval', 'align_uniform'])
+                                 tasks=['clustering', 'semantic_relatedness', 'semantic_relatedness', 'session_retrieval', 'align_uniform'])
                 
                 
             if is_best:
-                self.best_dev_evaluation_result.update(dev_evaluation_result)
+                self.best_dev_evaluation_result.update(dev_evaluation_result) # 여기서 에러
                 # self.best_dev_evaluation_result.show(logger=self.logger, note=type)
 
             # self.best_dev_evaluation_result.update(best_evaluation_result)
@@ -310,15 +309,26 @@ class Processor():
         self.dev_progress = self.dev_progress.fromkeys(self.dev_progress, 0)
 
         with torch.no_grad():
+            all_dialgoue_embeddings = []
+            all_dialgoue_labels = []
             for step, batch in enumerate(self.config['loader']['test']):
                 inputs = batch
-                _, test_evaluation_result = self.run(inputs, type='test',
-                                 tasks=['clustering', 'semantic_relatedness'])#, 'semantic_relatedness', 'session_retrieval', 'align_uniform'])
+                
+                dialgoue_embeddings = self.config['model'](inputs, type, self.args.batch_size, self.args.seq_len)
+                pooled_dialgoue_embeddings = torch.sum(dialgoue_embeddings, dim=1) # torch.Size([4, 768])
+                all_dialgoue_embeddings.append(pooled_dialgoue_embeddings)
+                all_dialgoue_labels.append(inputs['label'])
+                
+            all_dialgoue_embeddings = torch.cat(all_dialgoue_embeddings, dim=0) 
+            all_dialgoue_labels = torch.cat(all_dialgoue_labels, dim=0)
+                
+            _, test_evaluation_result = self.run(inputs, type='test',
+                                                 tasks=['clustering', 'semantic_relatedness', 'semantic_relatedness', 'session_retrieval', 'align_uniform'])
 
-                self.best_test_evaluation_result.update(test_evaluation_result)
-                # self.best_test_evaluation_result.show(logger=self.logger, note=type)
-                # self.best_test_evaluation_result = test_evaluation_result
-                #self.progress_validation(score)
+            self.best_test_evaluation_result.update(test_evaluation_result)
+            # self.best_test_evaluation_result.show(logger=self.logger, note=type)
+            # self.best_test_evaluation_result = test_evaluation_result
+            #self.progress_validation(score)
 
         logger.info('### TEST SCORE ###')
         self.best_test_evaluation_result.show(logger=logger, note='test')

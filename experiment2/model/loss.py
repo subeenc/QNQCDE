@@ -77,6 +77,9 @@ class EvaluationResult(OrderedDict):
         self.SR = new_result.SR
         self.MRR = new_result.MRR
         self.MAP = new_result.MAP
+        self.alignment = new_result.alignment
+        self.adjusted_alignment = new_result.adjusted_alignment
+        self.uniformity = new_result.uniformity
 
     def show(self, logger=None, note=None):
         if logger is not None:
