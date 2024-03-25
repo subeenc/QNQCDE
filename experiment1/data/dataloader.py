@@ -18,6 +18,8 @@ from transformers import AutoTokenizer, AutoConfig
 #import config
 #from model.plato.configuration_plato import PlatoConfig
 
+from .generate_pairs import PairGenerator
+
 import warnings
 warnings.filterwarnings('ignore') 
 # warnings.filterwarnings('default')
@@ -26,10 +28,9 @@ warnings.filterwarnings('ignore')
 logger = logging.getLogger(__name__)
 
 class DialogueFeatures():
-    def __init__(self, input_ids, input_mask, segment_ids, role_ids, turn_ids=None, position_ids=None):
+    def __init__(self, input_ids, input_mask, role_ids, turn_ids=None, position_ids=None):
         self.input_ids = input_ids
         self.input_mask = input_mask
-        self.segment_ids = segment_ids
         self.role_ids = role_ids
         self.turn_ids = turn_ids
         self.position_ids = position_ids
@@ -56,7 +57,19 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
         
 
     def load_data(self, type):
-        df = pd.read_csv(self.file_path)  # 확인용으로 10개만 추출
+        '''
+        data = [("How do I get a new one?#To request a new card please send us an email at vic@va.gov#yes I was in the Army#Did you receive an honorable or general discharge under honorable conditions?#no I did not#I am sorry but you are not eligible for a Veteran ID Card||You said to me before that i should return the benefits of my deseaced spouse, is that right?#To request a new card please send us an email at vic@va.gov#",
+        '101010'),...("pos_neg_pairs", "turns")]
+        '''
+        column_names = ['turn', 'conversation', 'label']
+        print("==========================self.file_path=======================")
+        print(self.file_path)
+        df = pd.read_csv(self.file_path, sep='\t', header=None, names=column_names)
+        df = df[:4]
+        
+        pairgenerator = PairGenerator(random_seed=42)
+        data = pairgenerator.generate_pairs_for_dataset(df)
+
         self.len_data = len(df)
         # train
         self.positive_pairs = []
@@ -67,12 +80,13 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
         self.roles = []
         
         if type=='train':
-            for _, row in df.iterrows():
-                pair = row['pairs'].split('||')
+            for row in data:
+                pair = row[0].split('||')
                 positive_pair = pair[0].split('|')  # Positive pair 분리
                 negative_pair = pair[1].split('|')[:len(positive_pair)]  # Negative pair 분리 (positive pair와 개수 동일하게)
+                
                 label = [1] * len(positive_pair) + [0] * len(negative_pair)
-                role = row['turn']
+                role = row[1]
                 
                 self.positive_pairs.append(positive_pair)
                 self.negative_pairs.append(negative_pair)
@@ -83,33 +97,31 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
             self.negative_features = self.get_dialfeature(self.negative_pairs, self.type) 
         
         else:
-            for _, row in df.iterrows():
-                pair = row['pairs'].split('||')
+            print("test")
+            for row, label in zip(data, df['label']):  
+                pair = row[0].split('||')
                 dialgoue = pair[0].split('|')
-                label = row['label'] # 여기서의 label은 domain label
-                role = row['turn']
+                role = row[1]
                 
                 self.dialogues.append(dialgoue) # dialogue가 하나의 대화
-                self.labels.append(label) # label
+                self.labels.append(label) # 여기서의 label은 domain label
                 self.roles.append(role)
             
             self.dialogues_features = self.get_dialfeature(self.dialogues, self.type)
             
-        if type=='train':
-            assert len(self.positive_pairs) == len(self.negative_pairs)
-        else:
-            pass
+        # if type=='train':
+        #     assert len(self.positive_pairs) == len(self.negative_pairs)
+        # else:
+        #     pass
             
 
     def get_dialfeature(self, all_dial_pairs, type):  # 기존: data2tensor(self, line, type), pos, neg 각각 실행
         """
         all_dial_pairs = [
-            
-            [pair1, pair2,...,pairN]  # 하나의 대화 내 pair들
-            ['new contact add#name', "5''1'#eye color"],
-            ["No, that is it, thanks so much!#You're welcome.", "5''1'#eye color"]
+            "pair1",  
+            "pair2",
             ...
-            전체 대화 개수
+            "pairN"
         ]
         """
         
@@ -126,20 +138,22 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
                 # all_dial_pairs: 전체 대화와 각 대화의 pair들이 존재하는 list of list 형태
                 # dial_pairs: 한 대화 내 pair들로 구성된 리스트
                 # pair: 한 대화 내 각 pair가 문자열로 구성 -> 한 pair는 두 개의 turn을 구성, #구분자로 분리 가능
-            
+                
                 # 한 대화 내 pair를 모두 담기 위한 list
                 sample_input_ids = []
-                sample_segment_ids = []
                 sample_role_ids = []
                 sample_input_mask = []
                 sample_turn_ids = []
                 sample_position_ids = []
                         
+                # print("===================dial_pairs=================")
+                # print(dial_pairs)
                 for t, pair in enumerate(dial_pairs):
+                    # print("======================pair=====================")
+                    # print(pair)
                     text_tokens = []
                     text_turn_ids = []
                     text_role_ids = []
-                    text_segment_ids = []
                         
                     # config.turn_sep_token='#'
                     text_list = pair.split(turn_sep_token)
@@ -148,7 +162,7 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
                     # 하나의 pair에 존재하는 turn에 따라 role 구분
                     # 0으로 padding되므로 role은 2,1 내림차순으로 생성 -> 다중대화에선 추출한 대화 인덱스 부분의 role 정보 필요
                     # role_list = [2 if i % 2 == 0 else 1 for i in range(len(text_list))]
-                    role_list = [0, 1]
+                    role_list = list(dial_role)
 
                     # token: token [eou] token [eou] [bos] token [eos]
                     # role:   0     0     1     1     0     0      0
@@ -176,73 +190,46 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
                         response_tokens = [start_token] + word_list + [end_token]
                         response_role_ids = [role_id] * (1 + uttr_len + 1)
                         response_turn_ids = [turn_id] * (1 + uttr_len + 1)
-                        response_segment_ids = [0] * (1 + uttr_len + 1)                   # not use
 
                     else:
                         context = text_list
-                        response_tokens, response_role_ids, response_turn_ids, response_segment_ids = [], [], [], []
-
-                        # limit the context length
-                        # context = context[-self.args.max_context_length:]
-                        # context = context[-self.args.seq_len:]  # 가장 최근 512개 턴만 유지(특정 길이 데이터 제한, hyperparameter 변경 필요)
-
-                    '''
-                    use_response == False일 경우, 한 대화(샘플)에서 분리된 턴이 하나씩 들어감
-                    
-                    '''
+                        response_tokens, response_role_ids, response_turn_ids, text_position_ids = [], [], [], []
+                        context = context[-self.args.seq_len:]
+                        
                     # 한 turn씩 반복
-                    for i, text in enumerate(context):
-                        # print(text)
+                    for i, (text, role) in enumerate(zip(context, dial_role)):
                         word_list = self.tokenizer.tokenize(text)
                         uttr_len = len(word_list)
-
-                        end_token = eou
-
-                        role_id, turn_id = role_list[i], len(context) - i
-
-                        text_tokens.extend(word_list + [end_token])
-                        text_role_ids.extend([role_id] * (uttr_len + 1))
-                        text_turn_ids.extend([turn_id] * (uttr_len + 1))
-                        text_segment_ids.extend([0] * (uttr_len + 1))
-
+                        
+                        current_turn = len(dial_role) - 1
+                        
+                        text_tokens.extend(word_list + [eou])
+                        text_role_ids.extend([int(role)] * (uttr_len + 1))
+                        text_turn_ids.extend([current_turn] * (uttr_len+1))
+                        text_position_ids.extend(list(range(uttr_len)) + [uttr_len])
+                        current_turn -= 1
                     
                     text_tokens.extend(response_tokens)
                     text_role_ids.extend(response_role_ids)
                     text_turn_ids.extend(response_turn_ids)
-                    text_segment_ids.extend(response_segment_ids)
 
                     if len(text_tokens) > self.args.seq_len:
                         text_tokens = text_tokens[:self.args.seq_len]
                         text_turn_ids = text_turn_ids[:self.args.seq_len]
                         text_role_ids = text_role_ids[:self.args.seq_len]
-                        text_segment_ids = text_segment_ids[:self.args.seq_len]
-
-                    #  max_context_length=15
-                    assert (max(text_turn_ids) <= 15)
-
-                    # 制作text_position_id序列  -> Make text_position_id sequence
-                    text_position_ids = []
-                    text_position_id = 0
-                    for i, turn_id in enumerate(text_turn_ids):
-                        if i != 0 and turn_id < text_turn_ids[i - 1]:   # PLATO
-                            text_position_id = 0
-                        text_position_ids.append(text_position_id)
-                        text_position_id += 1
-                    
+                        text_position_ids = text_position_ids[:self.args.seq_len]
 
                     # max_turn_id = max(text_turn_ids)
                     # text_turn_ids = [max_turn_id - t for t in text_turn_ids]
 
                     text_input_ids = self.tokenizer.convert_tokens_to_ids(text_tokens)
                     text_input_mask = [1] * len(text_input_ids)
-                    
 
                     # Zero-pad up to the sequence length.
                     while len(text_input_ids) < self.args.seq_len:
                         text_input_ids.append(0)
                         text_turn_ids.append(0)
                         text_role_ids.append(0)
-                        text_segment_ids.append(0)
                         text_position_ids.append(0)
                         text_input_mask.append(0)
 
@@ -250,24 +237,22 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
                     assert len(text_input_ids) == self.args.seq_len
                     assert len(text_turn_ids) == self.args.seq_len
                     assert len(text_role_ids) == self.args.seq_len
-                    assert len(text_segment_ids) ==self.args.seq_len
                     assert len(text_position_ids) == self.args.seq_len
                     assert len(text_input_mask) == self.args.seq_len
                     
                     sample_input_ids.append(text_input_ids)
                     sample_turn_ids.append(text_turn_ids)
                     sample_role_ids.append(text_role_ids)
-                    sample_segment_ids.append(text_segment_ids)
                     sample_position_ids.append(text_position_ids)
                     sample_input_mask.append(text_input_mask)
-
+                
+                # print(sample_input_ids)
                 bert_feature = DialogueFeatures(input_ids=sample_input_ids,
                                             input_mask=sample_input_mask,
-                                            segment_ids=sample_segment_ids,
                                             role_ids=sample_role_ids,
                                             turn_ids=sample_turn_ids,
                                             position_ids=sample_position_ids)
-
+                # print(bert_feature.role_ids)
                 features.append(bert_feature)        
         return features
 
@@ -294,6 +279,8 @@ class DialogueDataset(Dataset): # 기존 ModelDataLoader
                         'turn_ids':torch.LongTensor(negative_features.turn_ids),
                     },
             }
+            # print('========== getitem_inputs_check ===========')
+            # print(inputs)
         
         else:
             dialogues_features = self.dialogues_features[idx]
@@ -411,24 +398,6 @@ def get_loader(args, metric):
         loader = None
 
     return bert_model, loader, tokenizer
-
-
-"""def convert_to_tensor(corpus, transform):
-    tensor_corpus = []
-    tensor_valid_length = []
-    tensor_segment_ids = []
-    for step, sentence in enumerate(corpus):
-        cur_sentence, valid_length, segment_ids = transform([sentence])
-
-        tensor_corpus.append(cur_sentence)
-        tensor_valid_length.append(numpy.array([valid_length]))
-        tensor_segment_ids.append(segment_ids)
-
-    inputs = {'source': torch.LongTensor(tensor_corpus),
-              'segment_ids': torch.LongTensor(tensor_segment_ids),
-              'valid_length': torch.tensor(tensor_valid_length)}
-
-    return inputs"""
 
 
 def example_model_setting(model_ckpt):
