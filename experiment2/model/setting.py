@@ -33,6 +33,8 @@ class Arguments():
         self.add_argument('--temperature', type=float, default=0.05)
 
     def add_data_parameters(self):
+        self.add_argument('--init_checkpoint', type=str, required=True, help='Path to the initial checkpoint file')
+        self.add_argument("--config_file", default="model/plato/config.json", type=str)
         self.add_argument('--train_data', type=str, default='train_nli.tsv')
         self.add_argument('--valid_data', type=str, default='valid_sts.tsv')
         self.add_argument('--test_data', type=str, default='test_sts.tsv')
