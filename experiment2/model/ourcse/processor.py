@@ -54,10 +54,29 @@ class Processor():
     
 
         if type == 'train':
-            positive_embeddings, negative_embeddings = self.config['model'](inputs, type, self.args.batch_size, self.args.seq_len)
-            # print("===== positive_embeddings =====")
-            # print(positive_embeddings, positive_embeddings.shape)
-             
+            # torch.Size([4, 10, 64])
+            input_ids, attention_mask, token_type_ids, role_ids, turn_ids, position_ids, labels = inputs
+            
+            input_ids = input_ids.view(input_ids.size()[0] * input_ids.size()[1], input_ids.size()[-1])
+            attention_mask = attention_mask.view(attention_mask.size()[0] * attention_mask.size()[1], attention_mask.size()[-1])
+            token_type_ids = token_type_ids.view(token_type_ids.size()[0] * token_type_ids.size()[1], token_type_ids.size()[-1])
+            role_ids = role_ids.view(role_ids.size()[0] * role_ids.size()[1], role_ids.size()[-1])
+            turn_ids = turn_ids.view(turn_ids.size()[0] * turn_ids.size()[1], turn_ids.size()[-1])
+            position_ids = position_ids.view(position_ids.size()[0] * position_ids.size()[1], position_ids.size()[-1])
+            
+            outputs = self.config['model'](input_ids=input_ids, # .to(self.args.device) 붙이니까 에러남
+                                        attention_mask=attention_mask, 
+                                        token_type_ids=token_type_ids, 
+                                        position_ids=position_ids, 
+                                        turn_ids=turn_ids, 
+                                        role_ids=role_ids,
+                                        return_dict=True)
+            print("===== dialogue embeddings =====")
+            print(outputs['last_hidden_state'].shape)  # torch.Size([40, 64, 768])
+            # print(outputs['hidden_states'])  # all_hidden_states(12 layers) -> 각 레이어 당 torch.Size([40, 64, 768])
+            print(outputs['pooler_output'].shape)  # torch.Size([40, 768])
+            print(outputs['response_selection_scores'].shape)  # torch.Size([40, 64, 1])               
+            
             loss = self.loss.train_loss_fct(self.config, positive_embeddings, negative_embeddings) # loss.py에 수식 포함
             return loss
         
@@ -194,6 +213,8 @@ class Processor():
 
     def model_setting(self):
         model, loader, tokenizer = get_loader(self.args, self.metric) # 데이터로더 가져오는 부분 /data/dataloader.py
+        print()
+        
         # model = BERT(model) # 사전학습된 bert 모델이나 가중치가 사용되면 여기서는 skt가 학습했던 kobert가 들어가는 것으로 판단
         model.to(self.args.device)
 
@@ -228,6 +249,7 @@ class Processor():
         for step, batch in enumerate(tqdm(self.config['loader']['train'])):
             self.config['optimizer'].zero_grad()
 
+            batch = tuple(t.to(self.args.device) for t in batch)
             inputs = batch
 
             with autocast(enabled=self.args.fp16 == 'True'): # apex 에러 해결

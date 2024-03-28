@@ -14,7 +14,7 @@ python experiment2/main.py \
   --lr 0.0001 \
   --warmup_ratio 0.05 \
   --temperature 0.2 \
-  --path_to_data  /home/subeen40/cl_research/dial2vec_40/datasets/sgd \
+  --path_to_data  /home/subeen40/cl_research/dial2vec_40/datasets/mwoz \
   --train_data train.tsv \
   --valid_data clustering_dev.tsv
 
