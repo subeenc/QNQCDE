@@ -14,6 +14,7 @@ from torch.nn.utils.rnn import pad_sequence
 from transformers import BertTokenizer
 from transformers.models.bert.modeling_bert import BertModel
 from transformers import AutoTokenizer, AutoConfig
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 #from KoBERT.kobert.utils import get_tokenizer
 #from KoBERT.kobert.pytorch_kobert import get_pytorch_kobert_model # 사전학습된 kobert 사용
@@ -57,25 +58,28 @@ class DialogueDataset():
     def load_data(self):
         column_names = ['turn', 'conversation', 'label']
 
-        df = pd.read_csv(self.file_path, sep='\t', header=None, names=column_names)[:12]
+        df = pd.read_csv(self.file_path, sep='\t', header=None, names=column_names)
+        df = df.dropna(subset=['label'])
+        df = df[:12]
+        # tqdm_pandas = tqdm(total=len(df), desc="Processing")
 
-        tqdm_pandas = tqdm(total=len(df), desc="Processing")
+        features = []
+        # features = df.apply(lambda row: self.get_dialfeature(row, self.type), axis=1).dropna().tolist()
 
-        def update_progress(row):
-            # 각 행에 대한 처리를 여기에 구현합니다. 예를 들어:
-            feature = self.get_dialfeature(row, self.type)
-            tqdm_pandas.update(1)  # 진행 상태 업데이트
-            return feature
-        
-        features = list(df.apply(update_progress, axis=1))
-        
-        tqdm_pandas.close()
-        # print(features)
+        with ThreadPoolExecutor(max_workers=4) as executor:  # 동시에 실행할 작업 수를 정의
+            # 각 행에 대한 처리 작업을 제출하고 Future 객체를 리스트에 저장
+            futures = [executor.submit(self.get_dialfeature, row, self.type) for _, row in df.iterrows()]
+            
+            # as_completed()를 사용하여 완료된 순서대로 결과를 받음
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing"):
+                result = future.result()
+                if result is not None:
+                    features.append(result)
         return features
 
     def get_dialfeature(self, example, type):  # 기존: data2tensor(self, line, type), pos, neg 각각 실행
         """
-        examples : turn, conversation, label 컬럼으로 구성된 데이터프레임
+        examples : turn, conversation, label 컬럼으로 구성된 데이터프레임 행
         """
         
         # 차후 config에 넣고 활용
@@ -98,11 +102,14 @@ class DialogueDataset():
             sample_position_ids = []
             
             for t, s in enumerate(sample_list):
+                if len(sample_list)>10 or len(role_list)>15:
+                    # print(t, len(sample_list), len(role_list))
+                    return None
+                
                 text_tokens = []
                 text_turn_ids = []
                 text_role_ids = []
                 text_segment_ids = []
-                
                 
                 # config.turn_sep_token = '#'
                 text_list = s.split(turn_sep_token)
@@ -206,17 +213,16 @@ class DialogueDataset():
                 sample_segment_ids.append(text_segment_ids)
                 sample_position_ids.append(text_position_ids)
                 sample_input_mask.append(text_input_mask)
-
-            label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-            feature = DialogueFeatures(input_ids=sample_input_ids,
-                                            input_mask=sample_input_mask,
-                                            segment_ids=sample_segment_ids,
-                                            role_ids=sample_role_ids,
-                                            turn_ids=sample_turn_ids,
-                                            position_ids=sample_position_ids,
+                
+                label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                feature = DialogueFeatures(input_ids=sample_input_ids,
+                                                input_mask=sample_input_mask,
+                                                segment_ids=sample_segment_ids,
+                                                role_ids=sample_role_ids,
+                                                turn_ids=sample_turn_ids,
+                                                position_ids=sample_position_ids,
                                             label_id=label_id)
-
-        return feature
+            return feature
 
     def _get_loader(self, features):
         if self.type=="train":
@@ -230,7 +236,7 @@ class DialogueDataset():
             # train_sampler = RandomSampler(data) if self.args.local_rank == -1 else DistributedSampler(data, num_replicas=torch.cuda.device_count(), rank=self.args.local_rank)
 
         # torch.Size([12, 10, 64]) -> #data, #samples seq_len
-        all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
+        all_input_ids = torch.tensor([(f.input_ids) for f in features], dtype=torch.long)
         all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
         all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
         all_role_ids = torch.tensor([f.role_ids for f in features], dtype=torch.long)
@@ -238,31 +244,30 @@ class DialogueDataset():
         all_position_ids = torch.tensor([f.position_ids for f in features], dtype=torch.long)
         all_label_ids = torch.tensor([f.label_id for f in features], dtype=torch.long)
 
-        # print("====================all_input_ids==========================")
-        # print(all_input_ids.shape)
+        # print("====================Dataloader loader data dim==========================")
+        # print(all_input_ids.shape)  # torch.Size([2197, 10, 64])
         
         data = TensorDataset(all_input_ids,
-                                   all_input_mask,
-                                   all_segment_ids,
-                                   all_role_ids,
-                                   all_turn_ids,
-                                   all_position_ids,
-                                   all_label_ids)
+                            all_input_mask,
+                            all_segment_ids,
+                            all_role_ids,
+                            all_turn_ids,
+                            all_position_ids,
+                            all_label_ids)
         
         self.loader = DataLoader(data,
-                            #    sampler=train_sampler,
-                                batch_size=self.args.batch_size,
-                                num_workers=2)
+                                batch_size=self.args.batch_size)
+                                # shuffle=True)
         
         # inputs = self.metric.move2device(inputs, self.args.device)
         return self.loader
 
 def load_model(args):    
     config = PlatoConfig.from_json_file(args.config_file)
-    plato = PlatoModel(config)
+    plato = PlatoModel(config, args)
     
     if args.init_checkpoint is not None:
-        state_dict = torch.load(args.init_checkpoint, map_location="cpu")
+        state_dict = torch.load(args.init_checkpoint) #, map_location="cpu"
         if args.init_checkpoint.endswith('pt'):
             plato.load_state_dict(state_dict, strict=False)
         else:
