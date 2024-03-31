@@ -62,4 +62,3 @@ class BERT(nn.Module):
         # embeddings = embeddings_outputs['pooler_output']
 
         return embeddings
-

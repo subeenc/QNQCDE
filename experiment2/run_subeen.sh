@@ -38,4 +38,3 @@ python experiment2/main.py \
 #echo "Semantic Search"
 
 #python SemanticSearch.py
-
