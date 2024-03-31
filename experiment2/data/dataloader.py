@@ -66,15 +66,20 @@ class DialogueDataset():
         features = []
         # features = df.apply(lambda row: self.get_dialfeature(row, self.type), axis=1).dropna().tolist()
 
-        with ThreadPoolExecutor(max_workers=4) as executor:  # 동시에 실행할 작업 수를 정의
-            # 각 행에 대한 처리 작업을 제출하고 Future 객체를 리스트에 저장
-            futures = [executor.submit(self.get_dialfeature, row, self.type) for _, row in df.iterrows()]
+        # with ThreadPoolExecutor(max_workers=4) as executor:  # 동시에 실행할 작업 수를 정의
+        #     # 각 행에 대한 처리 작업을 제출하고 Future 객체를 리스트에 저장
+        #     futures = [executor.submit(self.get_dialfeature, row, self.type) for _, row in df.iterrows()]
             
-            # as_completed()를 사용하여 완료된 순서대로 결과를 받음
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing"):
-                result = future.result()
-                if result is not None:
-                    features.append(result)
+        #     # as_completed()를 사용하여 완료된 순서대로 결과를 받음
+        #     for future in tqdm(as_completed(futures), total=len(futures), desc="Processing"):
+        #         result = future.result()
+        #         if result is not None:
+        #             features.append(result)
+        
+        features = df.apply(lambda row: self.get_dialfeature(row, self.type), axis=1).tolist()
+        # features = [self.get_dialfeature(row, self.type) for _, row in tqdm(df.iterrows(), total=df.shape[0], desc="Processing")]
+        features = [feature for feature in features if feature is not None]
+        
         return features
 
     def get_dialfeature(self, example, type):  # 기존: data2tensor(self, line, type), pos, neg 각각 실행
