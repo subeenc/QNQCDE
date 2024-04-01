@@ -8,6 +8,7 @@ from collections import OrderedDict
 import torch.nn as nn
 import torch.nn.functional as F
 from model.utils import Metric
+from model.sampler import IdentitySampler, BaseSampler, GreedyCoresetSampler, ApproximateGreedyCoresetSampler
 from time import time
 from sklearn.cluster import KMeans
 from sklearn.manifold import TSNE
@@ -379,31 +380,93 @@ class Loss():
         self.args = args
         self.cos = nn.CosineSimilarity(dim=2)
         self.metric = Metric(args)
+        
+        sampler_name = args.sampler 
+        percentage = args.percentage
+        device = args.device
+        if sampler_name == 'identity':
+            self.embeddingsampler = IdentitySampler()
+        elif sampler_name == 'greedy_coreset':
+            self.embeddingsampler = GreedyCoresetSampler(percentage, device)
+        elif sampler_name == 'approx_greedy_coreset':
+            self.embeddingsampler = ApproximateGreedyCoresetSampler(percentage, device)
+        else:
+            raise ValueError(f"Unsupported sampler: {sampler_name}")
+        
+    def embedding_matching_role(self, role_ids, embeddings):
+        embeddings_turn = []
+        start_idx = 0
+        role_ids_cpu = role_ids.cpu().numpy()[0]
 
-    def train_loss_fct(self, config, p, n): # Positive와 Negative 샘플에 대한 임베딩 간 유사도를 계산하고, Contrastive Loss를 계산
+        for i in range(1, len(role_ids_cpu)):
+            if role_ids_cpu[i] != role_ids_cpu[i-1]:
+                turn = embeddings[:, start_idx:i, :].mean(dim=1)
+                embeddings_turn.append(turn)
+                start_idx = i
+
+        turn = embeddings[:, start_idx:, :].mean(dim=1)
+        embeddings_turn.append(turn)
+
+        embeddings_turn = torch.cat(embeddings_turn, dim=0)
+        return embeddings_turn
+
+    def train_loss_with_sampling(self, config, pr, nr, p, n): # Positive와 Negative 샘플에 대한 임베딩 간 유사도를 계산하고, Contrastive Loss를 계산
         
         loss = []
         
-        for i in range(p.shape[0]): # p.shape[0]: batch_size
+        for i in range(self.args.batch_size): # 하나의 대화단위로 접근
             
-            pos_cos_sim = self.cos(p[i].unsqueeze(1), p[i].unsqueeze(0)) / self.args.temperature
+            # 실험2. role_ids를 이용한 턴 단위
+            # print("pr:", pr[i].shape, pr[i])
+            # print("nr:", nr[i].shape, nr[i])
+            # print("p:", p[i].shape, p[i])
+            # print("n:", n[i].shape, n[i])
+            pos_turn = self.embedding_matching_role(pr[i], p[i])
+            
+            neg_turn = []
+            for ni in n[i]:
+                n_turn = self.embedding_matching_role(nr[i], ni.unsqueeze(0))
+                neg_turn.append(n_turn)
+            neg_turns = torch.cat(neg_turn, dim=0)
+            
+            # print("pos_turn:", pos_turn.shape)
+            # print("neg_turns:", neg_turns.shape)
+            
+            # 샘플링 진행
+            pos_sample = self.embeddingsampler.run(pos_turn)
+            neg_samples = self.embeddingsampler.run(neg_turns)
+            # print("pos sample:", pos_sample.shape)
+            # print("neg samples:", neg_samples.shape)
+            
+            # loss 계산
+            pos_cos_sim = self.cos(pos_sample.unsqueeze(1), pos_sample.unsqueeze(0)) / self.args.temperature
             mask_pos = torch.eye(pos_cos_sim.size(0)).bool().to(self.args.device)
-            pos_cos_sim.masked_fill_(mask_pos, 0) # 대각행렬을 0으로 채움
-            # print("=======pos_cos_sim: ", pos_cos_sim)
-            
-            neg_cos_sim = self.cos(n[i].unsqueeze(1), n[i].unsqueeze(0)) / self.args.temperature
+            pos_cos_sim.masked_fill_(mask_pos, 0)
+            # print("pos_cos_sim: ", pos_cos_sim)
+            neg_cos_sim = self.cos(neg_samples.unsqueeze(1), neg_samples.unsqueeze(0)) / self.args.temperature
             mask_neg = torch.eye(neg_cos_sim.size(0)).bool().to(self.args.device)
             neg_cos_sim.masked_fill_(mask_neg, 0)
-            # print("=======neg_cos_sim: ", neg_cos_sim)
+            # print("neg_cos_sim: ", neg_cos_sim)
             
-            cosine_similarity = torch.cat([pos_cos_sim, neg_cos_sim], dim=1).to(self.args.device)
-            labels = torch.arange(cosine_similarity.size(0)).long().to(self.args.device)
+            # criterion = nn.NLLLoss() 인 경우
+            log_probs_pos = nn.LogSoftmax(dim=1)(pos_cos_sim)
+            labels_pos = torch.arange(log_probs_pos.size(0)).long().to(self.args.device) 
+            pos_loss = config['criterion'](log_probs_pos, labels_pos)
+            # print("pos_loss: ", pos_loss)
             
-            log_softmax = nn.LogSoftmax(dim=1)
-            log_probs = log_softmax(cosine_similarity)
-            dial_loss = config['criterion'](log_probs, labels)  # criterion = nn.CrossEntropyLoss() 대신 criterion = nn.NLLLoss()
-
-            # print("=======dial_loss: ", dial_loss)
+            log_probs_neg = nn.LogSoftmax(dim=1)(neg_cos_sim)
+            labels_neg = torch.arange(log_probs_neg.size(0)).long().to(self.args.device)
+            neg_loss = config['criterion'](log_probs_neg, labels_neg)
+            # print("neg_loss: ", neg_loss)
+            
+            # # criterion = nn.CrossEntropyLoss() 인 경우
+            # labels_pos = torch.arange(pos_cos_sim.size(0)).long().to(self.args.device) 
+            # pos_loss = config['criterion'](pos_cos_sim, labels_pos)
+            # labels_neg = torch.arange(neg_cos_sim.size(0)).long().to(self.args.device) 
+            # pos_loss = config['criterion'](neg_cos_sim, labels_neg)
+            
+            dial_loss = pos_loss / neg_loss
+            print("dial_loss: ", dial_loss)
             loss.append(dial_loss)
         
         #print("=======loss: ", torch.stack(loss).sum() / len(loss))

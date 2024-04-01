@@ -31,6 +31,8 @@ class Arguments():
         self.add_argument('--weight_decay', type=float, default=0.0)
         self.add_argument('--warmup_ratio', type=float, default=0.05)
         self.add_argument('--temperature', type=float, default=0.05)
+        self.add_argument('--sampler', type=str, default="identity")
+        self.add_argument('--percentage', type=float, default=0.1)
 
     def add_data_parameters(self):
         self.add_argument('--init_checkpoint', type=str, required=True, help='Path to the initial checkpoint file')

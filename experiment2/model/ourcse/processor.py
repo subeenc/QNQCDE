@@ -71,13 +71,44 @@ class Processor():
                                         turn_ids=turn_ids, 
                                         role_ids=role_ids,
                                         return_dict=True)
-            print("===== dialogue embeddings =====")
-            print(outputs['last_hidden_state'].shape)  # torch.Size([40, 64, 768])
+            # print("===== dialogue embeddings =====")
+            # print("labels:", labels)
+            # print(outputs['last_hidden_state'].shape)  # torch.Size([40, 64, 768])
             # print(outputs['hidden_states'])  # all_hidden_states(12 layers) -> 각 레이어 당 torch.Size([40, 64, 768])
-            print(outputs['pooler_output'].shape)  # torch.Size([40, 768])
-            print(outputs['response_selection_scores'].shape)  # torch.Size([40, 64, 1])               
+            # print(outputs['pooler_output'].shape)  # torch.Size([40, 768])
+            # print(outputs['response_selection_scores'].shape)  # torch.Size([40, 64, 1])  
+            # print("input_ids:", input_ids.shape, input_ids)
+            # print("role_ids:", role_ids.shape, role_ids)
             
-            loss = self.loss.train_loss_fct(self.config, positive_embeddings, negative_embeddings) # loss.py에 수식 포함
+            # positive, negative sample 분리       
+            ## 실험1. 대화 단위      
+            # lh_avg_output = torch.mean(outputs['last_hidden_state'], dim=1)
+            # lh_avg_output = lh_avg_output.view(outputs['last_hidden_state'].size(0), -1)
+            # print("lh_avg_output:", lh_avg_output.shape) # torch.Size([40, 768]) 
+            # lh_avg_output = lh_avg_output.view(self.args.batch_size, -1, lh_avg_output.size(-1))
+            # print("lh_avg_output(reshape):", lh_avg_output.shape) # torch.Size([4, 10, 768]) 
+            
+            # positive_embeddings = lh_avg_output[:, :1, :] # 첫 번째 샘플을 positive로 설정
+            # negative_embeddings = lh_avg_output[:, 1:, :] # # 나머지 샘플을 positive로 설정
+            # print("positive_embeddings:", positive_embeddings.shape) # torch.Size([4, 1, 768])
+            # print("negative_embeddings:", negative_embeddings.shape) # torch.Size([4, 9, 768])
+            
+            ## 실험2. role_ids를 이용한 턴 단위
+            role_id = role_ids.view(self.args.batch_size, -1, self.args.seq_len)
+            positive_roleid = role_id[:, :1, :] # torch.Size([1, 64])
+            negative_roleid = role_id[:, 1:, :] 
+            
+            _, _, hidden_size = outputs['last_hidden_state'].size()
+            output_embeddings = outputs['last_hidden_state'].view(self.args.batch_size, -1, self.args.seq_len, hidden_size)
+            positive_embeddings = output_embeddings[:, :1, :, :]
+            negative_embeddings = output_embeddings[:, 1:, :, :]
+            print("positive_embeddings:", positive_embeddings.shape) # torch.Size([4, 1, 64, 768])
+            print("negative_embeddings:", negative_embeddings.shape) # torch.Size([4, 9, 64, 768])
+            
+            
+            # 샘플링과 해당 결과를 바탕으로 loss 구하는 과정
+            # train_loss_with_sampling 안에서 sampling과 loss 구하는 과정 함께 진행
+            loss = self.loss.train_loss_with_sampling(self.config, positive_roleid, negative_roleid, positive_embeddings, negative_embeddings)
             return loss
         
         
