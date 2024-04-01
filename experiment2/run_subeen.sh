@@ -4,7 +4,7 @@ echo "Start Training"
 
 python experiment2/main.py \
   --test False \
-  --init_checkpoint "/home/subeen40/subeen/research/SimCDE/experiment2/model/PLATO.pt" \
+  --init_checkpoint "/home/subeen40/cl_research/dial2vec_40/model/PLATO.pt" \
   --config_file "/home/subeen40/subeen/research/SimCDE/experiment2/model/plato/config.json" \
   --max_len 50 \
   --batch_size 4 \
@@ -14,6 +14,8 @@ python experiment2/main.py \
   --lr 0.0001 \
   --warmup_ratio 0.05 \
   --temperature 0.2 \
+  --sampler greedy_coreset \
+  --percentage 0.5 \
   --path_to_data  /home/subeen40/cl_research/dial2vec_40/datasets/mwoz \
   --train_data train.tsv \
   --valid_data clustering_dev.tsv

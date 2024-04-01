@@ -66,7 +66,6 @@ class Embedder(nn.Module):
         return embed
     
     def validate_indices(self, indices, num_embeddings, name):
-        # print("indices:", indices)
         if indices.max() >= num_embeddings or indices.min() < 0:
             raise ValueError(f"{name} indices out of range: {indices.min()} ~ {indices.max()}, but expected between 0 and {num_embeddings-1}")
 
