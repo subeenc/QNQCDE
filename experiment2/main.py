@@ -13,6 +13,7 @@ def main(args, logger) -> None:
         logger.info('Start Training')
         
         for epoch in range(args.epochs):
+            print(f"epoch {epoch}")
             processor.train(epoch+1)
 
     if args.test == 'True':

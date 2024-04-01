@@ -167,18 +167,18 @@ def precalculate_scores_from_subject_and_model(y_true, features): # 출력값 �
     :param features:    produced features
     :return:
     """
-    #print("======= y_true: ", y_true)
+    # print("======= y_true: ", y_true)
     y_true = y_true.astype(int).reshape(-1, 1)
     M_y = np.repeat(y_true, repeats=len(y_true), axis=-1)
-    #print("======= M_y: ", M_y)
+    # print("======= M_y: ", M_y)
 
     assert (M_y.shape[0] == M_y.shape[1])
 
     scores_from_subject = (M_y == M_y.T).astype(float) # .reshape(-1)
-    #print("======= features: ", features)
+    # print("======= features: ", features)
     scores_from_model = feature_cosine_matrix(features) # .reshape(-1)
-    #print("======= scores_from_subject: ", scores_from_subject)
-    #print("======= scores_from_model: ", scores_from_model)
+    # print("======= scores_from_subject: ", scores_from_subject)
+    # print("======= scores_from_model: ", scores_from_model)
 
     return scores_from_subject, scores_from_model
 
@@ -243,20 +243,22 @@ def get_rankings(scores_from_model, dtype='float64'):
 def mean_average_precision(scores_from_subject, all_rankings, dtype='float64'):
     map_score = 0.
     scores_from_subject = scores_from_subject.astype(dtype)
+    # print("========== scores_from_subject", scores_from_subject)
+    # print('========== all_rankings:', all_rankings)
 
     n_samples = scores_from_subject.shape[0] # scores_from_subject의 행 수를 통해 샘플의 수를 가져옴
     for i in range(n_samples):
-        #print('========== all_rankings:', all_rankings)
+        # print('========== all_rankings:', all_rankings)
         rankings = np.sort(all_rankings[i][scores_from_subject[i] == 1]) # 이진 레이블이 1인 인덱스에 해당하는 순위를 정렬
-        #print('========== rankings:', rankings)
+        # print('========== rankings:', rankings)
         cumsum = np.cumsum(scores_from_subject[i][scores_from_subject[i] == 1]) # 누적 합계를 계산, 배열 [1, 2, 3, 4]의 경우 cumsum은 [1, 3, 6, 10]을 반환
-        #print('========== cumsum:', cumsum)
+        # print('========== cumsum:', cumsum)
 
         reciprocal_rankings = cumsum / rankings # 누적 합계를 해당 인덱스에 대한 순위로 나눔
-        #print('========== reciprocal_rankings:', reciprocal_rankings)
+        # print('========== reciprocal_rankings:', reciprocal_rankings)
 
         map_score += np.mean(reciprocal_rankings) / n_samples # 이러한 값의 평균을 구하고 map_score에 추가
-        #print('========== map_score:', map_score)
+        # print('========== map_score:', map_score)
 
     return map_score
 
@@ -271,6 +273,7 @@ def mean_reciprocal_rank(scores_from_subject, scores_from_model, dtype='float64'
     """
     sorting_index = np.argsort(scores_from_model.astype(dtype), axis=-1)
     sorted_scores_from_subject = np.take_along_axis(scores_from_subject.astype(dtype), sorting_index, axis=-1)[:, ::-1]
+    # print(sorted_scores_from_subject)
     rs = np.array([r.tolist().index(1) for r in sorted_scores_from_subject])
     return float(np.mean(1. / (rs + 1)))
 
@@ -466,7 +469,7 @@ class Loss():
             # pos_loss = config['criterion'](neg_cos_sim, labels_neg)
             
             dial_loss = pos_loss / neg_loss
-            print("dial_loss: ", dial_loss)
+            # print("dial_loss: ", dial_loss)
             loss.append(dial_loss)
         
         #print("=======loss: ", torch.stack(loss).sum() / len(loss))
@@ -532,8 +535,11 @@ class Loss():
         # scoring
         if 'semantic_relatedness' in tasks or 'session_retrieval' in tasks:
             pre = time()
+            
             scores_from_subject, scores_from_model = precalculate_scores_from_subject_and_model(y_true=labels, features=features) # 이 함수 확인 필요
+            # print("===============scores_from_subject1\n",scores_from_subject)
             scores_from_subject = skip_diag_strided(scores_from_subject)
+            # print("===============scores_from_subject2\n",scores_from_subject)
             scores_from_model = skip_diag_strided(scores_from_model)
             scoring_time += (time() - pre)
 
@@ -552,6 +558,8 @@ class Loss():
                 pre = time()
                 rankings = get_rankings(scores_from_model, dtype=dtype) # 각 대화에 대해 코사인 유사도가 높은 대화 순으로 순위를 매기는 작업
                 ranking_time = time() - pre
+                
+                # print("===============scores_from_subject",scores_from_subject)
 
                 ## MRR
                 pre = time()
