@@ -4,17 +4,15 @@ import numpy as np
 from typing import Optional, Tuple
 from transformers.models.bert.modeling_bert import BertPooler
 from transformers.file_utils import ModelOutput
-from dataclasses import dataclass
 
 import config as user_config
 from model.plato.configuration_plato import PlatoConfig
 
-@dataclass
+
 class PlatoModelOutput(ModelOutput):
     last_hidden_state: torch.FloatTensor = None
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None
     response_selection_scores: Optional[torch.FloatTensor] = None
-    pooler_output: Optional[torch.FloatTensor] = None
 
 
 class Embedder(nn.Module):
@@ -44,30 +42,21 @@ class Embedder(nn.Module):
         return
 
     def forward(self, token_inp, pos_inp, type_inp, turn_inp):
-        # 인덱스 유효성 검사
-        self.validate_indices(token_inp, self.token_embedding.num_embeddings, "Token")
-        self.validate_indices(pos_inp, self.pos_embedding.num_embeddings, "Position")
-        self.validate_indices(type_inp, self.type_embedding.num_embeddings, "Type")
-        self.validate_indices(turn_inp, self.turn_embedding.num_embeddings, "Turn")
-       
-        # print("==================Embedder================")
-        # print(self.config.vocab_size, self.config.hidden_size)  # 30522 768
-        # print(self.token_embedding(token_inp).shape)  # torch.Size([40, 64, 768])
-        # print(self.pos_embedding(pos_inp).shape)  # torch.Size([40, 64, 768])
-        # print(self.type_embedding(type_inp).shape)  # torch.Size([40, 64, 768])
-        # print(self.turn_embedding(turn_inp).shape)  # torch.Size([40, 64, 768])
+        print("==================Embedder================")
+        print(self.config.vocab_size, self.config.hidden_size)  # 30522 768
+        print(self.token_embedding(token_inp).shape)  # torch.Size([40, 64, 768])
+        print(self.pos_embedding(pos_inp).shape)
+        print(self.type_embedding(type_inp))        
+        print(self.turn_embedding(turn_inp))
         
         embed = self.token_embedding(token_inp) + \
             self.pos_embedding(pos_inp) + \
             self.type_embedding(type_inp) + \
             self.turn_embedding(turn_inp)
         embed = self.dropout_layer(embed)
-        
+        print("Embedder shape")
+        print(embed.shape)
         return embed
-    
-    def validate_indices(self, indices, num_embeddings, name):
-        if indices.max() >= num_embeddings or indices.min() < 0:
-            raise ValueError(f"{name} indices out of range: {indices.min()} ~ {indices.max()}, but expected between 0 and {num_embeddings-1}")
 
 
 class MultiheadAttention(nn.Module):
@@ -131,15 +120,16 @@ class MultiheadAttention(nn.Module):
     def forward(self, inp, mask=None, cache=None):
         """ Forward process of self attention. """
         # shape: [batch_size, seq_len, 3 * hidden_size]
+        print("===================MultiheadAttention================")
+        print("inp", inp.shape)
+        print("mask",mask.shape)
         
+        # self.linear_qkv = nn.Linear(config.hidden_size, config.hidden_size * 3)
+        print(self.config.hidden_size)
         qkv = self.linear_qkv(inp)
-        
+        print("qkv",qkv.shape)
         query, key, value = torch.split(qkv, self.config.hidden_size, dim=2)
-        # print("===================MultiheadAttention================")
-        # print("inp", inp.shape)  # torch.Size([40, 64, 768])
-        # print("mask",mask.shape)  # torch.Size([40, 64, 64])
-        # print("qkv",qkv.shape)  # torch.Size([40, 64, 768*3])
-        
+
         # shape: [batch_size, num_head, seq_len, head_dim]
         query = self._split_heads(query)
         # shape: [batch_size, num_head, head_dim, seq_len]
@@ -220,7 +210,10 @@ class TransformerBlock(nn.Module):
 
         @param : cache
         """
+        print("==========attn_out==============")
         attn_out = self.attn(inp, mask, cache)
+        print("==========attn_out==============")
+        print(attn_out)
         attn_out = self.dropout_layer(attn_out)
         attn_out = self.attn_norm(attn_out + inp)
 
@@ -279,13 +272,16 @@ class PlatoModel(nn.Module):
         @param : auto_regressive
         @type : bool
         """
+        # print(input_mask.shape)
         seq_len = input_mask.shape[1]
+        # print(seq_len)
         # self.args.batch_size = input_mask.shape[0]
 
         input_mask = input_mask.float()
         mask1 = input_mask.unsqueeze(-1).repeat(1, 1, seq_len)
-        # print("======================Mask shape==================")
-        # print(mask1.shape)
+        # mask1 = input_mask.view(self.args.batch_size, -1, self.config.hidden_size)
+        print("======================Mask shape==================")
+        print(mask1.shape)
         mask2 = mask1.permute(0, 2, 1)
         mask = mask1 * mask2
 
@@ -316,15 +312,21 @@ class PlatoModel(nn.Module):
             turn_ids=None,
             role_ids=None,
             return_dict=False):
-                
+        
+        print("======================input dimension==================")
+        
         embed = self.embedder(token_inp=input_ids,  # torch.Size([4*10, 64])
                               pos_inp=position_ids,
                               type_inp=role_ids,
                               turn_inp=turn_ids)
+        print("============embed================")
+        print(embed.shape)
         
         embed = self.embed_layer_norm(embed)
         all_hidden_states = ()
         for layer in self.layers:
+            # print("===================attention_mask===================")
+            # print(attention_mask.shape)
             mask = self._create_mask(attention_mask, auto_regressive=False, append_head=False)
             embed = layer(inp=embed,
                           mask=mask,
