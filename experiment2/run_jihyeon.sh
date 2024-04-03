@@ -4,9 +4,9 @@ echo "Start Training"
 
 python main.py \
   --test False \
-  --init_checkpoint "/home/jihyeon41/SimCDE/experiment2/model/PLATO.pt" \
+  --init_checkpoint "/home/jihyeon41/research_dial_embedding/dial2vec_git/dial2vec/model/PLATO.pt" \
   --config_file "/home/jihyeon41/SimCDE/experiment2/model/plato/config.json" \
-  --max_len 50 \
+  --max_len 64 \
   --batch_size 4 \
   --seq_len 64 \
   --epochs 3 \

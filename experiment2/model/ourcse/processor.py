@@ -135,6 +135,8 @@ class Processor():
             if 'clustering' in tasks:
                 # print("len",len(all_dialgoue_embeddings))
                 n_average = max(3, 10 - self.total_data_count // 500)
+                print("==============cluster data input: features.shape[0], n_average==============")
+                print(self.total_data_count, all_dialgoue_embeddings.shape[0], n_average) 
                 er = self.loss.evaluation_during_training(features=all_dialgoue_embeddings,
                                                           labels=all_dialogue_domain_labels,
                                                           gpu_features=None,
@@ -151,9 +153,11 @@ class Processor():
                 evaluation_result.purity = er.purity
 
             # based on acc, plz ref metrics.py->EvaluationResult.__lr__()
-            print("evaluation_result",evaluation_result)
-            print()
-            is_best = True if evaluation_result > best_evaluation_result else False
+            # print("evaluation_result",evaluation_result)
+            # print()
+            # print('is_best test -> evaluation_result:', evaluation_result)
+            # print('is_best test -> best_evaluation_result:', best_evaluation_result)
+            is_best = True if evaluation_result.acc > best_evaluation_result.acc else False
             # print("is_best:", is_best)   
                 
             if 'semantic_relatedness' in tasks or 'session_retrieval' in tasks:
@@ -161,7 +165,7 @@ class Processor():
                 er = self.loss.evaluation_during_training(features=all_dialgoue_embeddings,
                                                         labels=all_dialogue_domain_labels,
                                                         gpu_features=None,
-                                                        n_average=n_average,
+                                                        n_average=0,
                                                         tasks=['semantic_relatedness', 'session_retrieval'],
                                                         dtype='float32',
                                                         tsne_visualization_output=None,
@@ -177,7 +181,7 @@ class Processor():
                 er = self.loss.evaluation_during_training(features=all_dialgoue_embeddings,
                                                         labels=all_dialogue_domain_labels,
                                                         gpu_features=None,
-                                                        n_average=n_average,
+                                                        n_average=0,
                                                         tasks=['align_uniform'],
                                                         dtype='float32',
                                                         tsne_visualization_output=None,
@@ -309,7 +313,8 @@ class Processor():
             self.config['scheduler'].step()
 
             self.progress(train_loss.data)
-
+            
+            # print("train_loss: ", train_loss)
             # print("==============self.args.eval_steps, self.model_progress['iter']==============")
             # print(self.args.eval_steps )
             # print(self.model_progress['iter']) # = globel_step
@@ -360,8 +365,8 @@ class Processor():
             # print(all_dialogue_domain_labels)
             
             is_best, dev_evaluation_result = self.run(all_dialgoue_embeddings, all_dialogue_domain_labels, type='valid',
-                                 tasks=['clustering', 'semantic_relatedness'])#, 'semantic_relatedness', 'session_retrieval', 'align_uniform'])
-                
+                                 tasks=['clustering', 'semantic_relatedness', 'session_retrieval'])#, 'semantic_relatedness', 'session_retrieval', 'align_uniform'])
+            print("dev_evaluation_result:", dev_evaluation_result)    
                 
             if is_best:
                 self.best_dev_evaluation_result.update(dev_evaluation_result)
@@ -381,7 +386,7 @@ class Processor():
             for step, batch in enumerate(self.config['loader']['test']):
                 inputs = batch
                 _, test_evaluation_result = self.run(inputs, type='test',
-                                 tasks=['clustering', 'semantic_relatedness'])#, 'semantic_relatedness', 'session_retrieval', 'align_uniform'])
+                                 tasks=['clustering', 'semantic_relatedness', 'session_retrieval'])#, 'semantic_relatedness', 'session_retrieval', 'align_uniform'])
 
                 self.best_test_evaluation_result.update(test_evaluation_result)
                 # self.best_test_evaluation_result.show(logger=self.logger, note=type)
