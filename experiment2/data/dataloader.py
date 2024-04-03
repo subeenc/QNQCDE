@@ -62,7 +62,7 @@ class DialogueDataset():
         df = pd.read_csv(self.file_path, sep='\t', header=None, names=column_names)        
         df = df.dropna(subset=['label'])
         self.domain_labels = df['label']
-        # df = df[:120]
+        df = df[:120]
         # tqdm_pandas = tqdm(total=len(df), desc="Processing")
 
         features = []

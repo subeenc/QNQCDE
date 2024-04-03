@@ -420,10 +420,10 @@ class Loss():
         for i in range(self.args.batch_size): # 하나의 대화단위로 접근
             
             # 실험2. role_ids를 이용한 턴 단위
-            # print("pr:", pr[i].shape, pr[i])
-            # print("nr:", nr[i].shape, nr[i])
-            # print("p:", p[i].shape, p[i])
-            # print("n:", n[i].shape, n[i])
+            print("pr:", pr[i].shape, pr[i])
+            print("nr:", nr[i].shape, nr[i])
+            print("p:", p[i].shape, p[i])
+            print("n:", n[i].shape, n[i])
             pos_turn = self.embedding_matching_role(pr[i], p[i])
             
             neg_turn = []
@@ -432,47 +432,54 @@ class Loss():
                 neg_turn.append(n_turn)
             neg_turns = torch.cat(neg_turn, dim=0)
             
-            # print("pos_turn:", pos_turn.shape)
-            # print("neg_turns:", neg_turns.shape)
+            print("================== loss ==================")
+            print("pos_turn:", pos_turn.shape, pos_turn)
+            print("neg_turns:", neg_turns.shape, neg_turns)
             
             # 샘플링 진행
             pos_sample = self.embeddingsampler.run(pos_turn)
             neg_samples = self.embeddingsampler.run(neg_turns)
-            # print("pos sample:", pos_sample.shape)
-            # print("neg samples:", neg_samples.shape)
+            print("pos sample:", pos_sample.shape)
+            print("neg samples:", neg_samples.shape)
             
             # loss 계산
             pos_cos_sim = self.cos(pos_sample.unsqueeze(1), pos_sample.unsqueeze(0)) / self.args.temperature
             mask_pos = torch.eye(pos_cos_sim.size(0)).bool().to(self.args.device)
             pos_cos_sim.masked_fill_(mask_pos, 0)
-            # print("pos_cos_sim: ", pos_cos_sim)
+            # print("pos_cos_sim: ", self.cos(pos_turn.unsqueeze(1), pos_turn.unsqueeze(0)).mean())
+            print("pos_cos_sim: ", pos_cos_sim.mean())
+            
             neg_cos_sim = self.cos(neg_samples.unsqueeze(1), neg_samples.unsqueeze(0)) / self.args.temperature
             mask_neg = torch.eye(neg_cos_sim.size(0)).bool().to(self.args.device)
             neg_cos_sim.masked_fill_(mask_neg, 0)
-            # print("neg_cos_sim: ", neg_cos_sim)
+            # print("neg_cos_sim: ",self.cos(neg_turns.unsqueeze(1), neg_turns.unsqueeze(0)).mean())
+            print("neg_cos_sim: ", neg_cos_sim.mean())
             
             # criterion = nn.NLLLoss() 인 경우
             log_probs_pos = nn.LogSoftmax(dim=1)(pos_cos_sim)
             labels_pos = torch.arange(log_probs_pos.size(0)).long().to(self.args.device) 
             pos_loss = config['criterion'](log_probs_pos, labels_pos)
-            # print("pos_loss: ", pos_loss)
+            print("log_probs_pos: ", log_probs_pos)
+            print("labels_pos: ", labels_pos)
+            print("pos_loss: ", pos_loss)
             
             log_probs_neg = nn.LogSoftmax(dim=1)(neg_cos_sim)
             labels_neg = torch.arange(log_probs_neg.size(0)).long().to(self.args.device)
             neg_loss = config['criterion'](log_probs_neg, labels_neg)
-            # print("neg_loss: ", neg_loss)
+            print("neg_loss: ", neg_loss)
             
             # # criterion = nn.CrossEntropyLoss() 인 경우
             # labels_pos = torch.arange(pos_cos_sim.size(0)).long().to(self.args.device) 
             # pos_loss = config['criterion'](pos_cos_sim, labels_pos)
             # labels_neg = torch.arange(neg_cos_sim.size(0)).long().to(self.args.device) 
-            # pos_loss = config['criterion'](neg_cos_sim, labels_neg)
+            # pos_loss = config['criterion'](neg_cos_sim, labels_neg            
             
-            dial_loss = pos_loss / neg_loss
+            # dial_loss = pos_loss / neg_loss
+            dial_loss = pos_loss + neg_loss
             # print("dial_loss: ", dial_loss)
             loss.append(dial_loss)
         
-        #print("=======loss: ", torch.stack(loss).sum() / len(loss))
+        print("======= loss: ", torch.stack(loss).sum() / len(loss))
 
         return torch.stack(loss).sum() / len(loss)
 
