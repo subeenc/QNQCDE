@@ -389,6 +389,7 @@ if __name__ == '__main__':
 
     # Data
     parser.add_argument("--data_dir", default='./dial2vec', type=str)
+    parser.add_argument("--model_dir", default='./dial2vec', type=str)
     parser.add_argument("--max_seq_length", default=512, type=int)
     parser.add_argument("--max_turn_view_range", default=1000, type=int)
     parser.add_argument("--max_context_length", default=15, type=int)
@@ -401,9 +402,9 @@ if __name__ == '__main__':
 
     if args.init_checkpoint is not None:
         if args.init_checkpoint.endswith('pt'):
-            args.init_checkpoint = os.path.join(work_dir, "model", args.init_checkpoint)
+            args.init_checkpoint = os.path.join(args.model_dir, "model", args.init_checkpoint)
         elif args.init_checkpoint.endswith('pkl'):
-            args.init_checkpoint = os.path.join(work_dir, "output", args.init_checkpoint)
+            args.init_checkpoint = os.path.join(work_dir, "output", args.init_checkpoint) # output 폴더에 dial2vec의 모델 넣어야함, 추후 변경 필요
 
     if args.feature_checkpoint is not None:
         if args.feature_checkpoint.endswith('pt'):
