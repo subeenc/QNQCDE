@@ -5,6 +5,9 @@ from model.plato.configuration_plato import PlatoConfig
 from model.plato.modeling_plato import PlatoModel
 from transformers import AutoModel, AutoConfig
 
+from itertools import groupby
+import random
+
 from sampler import IdentitySampler, BaseSampler, GreedyCoresetSampler, ApproximateGreedyCoresetSampler
 from config import huggingface_mapper
 
@@ -64,7 +67,7 @@ class Dial2vec(nn.Module):
         self.logger = args.logger
         
         self.cos = nn.CosineSimilarity(dim=2)
-        self.criterion = nn.NLLLoss()
+        self.criterion = nn.CrossEntropyLoss() # nn.NLLLoss()
         
         sampler_name = args.sampler 
         percentage = args.percentage
@@ -93,96 +96,207 @@ class Dial2vec(nn.Module):
                     self.logger.debug(name)
                     param.requires_grad = True
                     
-    # our model: for sampling
-    def embedding_matching_role(self, role_ids, embeddings):
-        embeddings_turn = []
-        start_idx = 0
-        role_ids_cpu = role_ids.cpu().numpy()[0]
+    # ========================== our model: for sampling ==========================
+    def embedding_matching_turn(self, role_ids, embeddings):
+        '''
+        role_ids를 이용해 embedding 결과를 turn 단위로 묶어서 결과를 리스트로 반환하는 함수
+        우선 대화자를 speaker라고 변수 이름 붙였는데, 상의 필요
+        '''
+        turn_emb_ls = []
 
-        for i in range(1, len(role_ids_cpu)):
-            if role_ids_cpu[i] != role_ids_cpu[i-1]:
-                turn = embeddings[:, start_idx:i, :].mean(dim=1)
-                embeddings_turn.append(turn)
-                start_idx = i
+        # pr을 1차원 리스트로 변환
+        r_ls = role_ids.squeeze().tolist()
 
-        turn = embeddings[:, start_idx:, :].mean(dim=1)
-        embeddings_turn.append(turn)
+        # 현재 발화자와 그 발화자의 연속 횟수를 파악하기 위한 변수
+        current_speaker = r_ls[0]
+        count = 1
 
-        embeddings_turn = torch.cat(embeddings_turn, dim=0)
-        return embeddings_turn
+        for i in range(1, len(r_ls)):
+            if r_ls[i] == current_speaker:
+                count += 1
+            else:
+                # 이전 발화자의 임베딩 결과를 새로운 리스트에 저장
+                turn_emb_ls.append(embeddings[:, i-count:i, :].squeeze(0))
+                # 새로운 발화자와 카운트 업데이트
+                current_speaker = r_ls[i]
+                count = 1
+
+        # 마지막 발화자 처리
+        turn_emb_ls.append(embeddings[:, len(r_ls)-count:len(r_ls), :].squeeze(0))
+        
+        return turn_emb_ls
     
-    def train_loss_with_sampling(self, pr, nr, p, n): # Positive와 Negative 샘플에 대한 임베딩 간 유사도를 계산하고, Contrastive Loss를 계산
+    def find_most_frequent_speaker(self, role_ids):
+        '''
+        가장 많이 등장한 대화자 찾고, turn 단위로 idx 새로 생성하는 함수
+        '''
+        r_ls = role_ids.squeeze().tolist()
+        speaker_counts = {}
+        turn_idx_ls = []
+
+        # 각 대화자의 등장 횟수 카운트
+        for speaker, _ in groupby(r_ls):
+            turn_idx_ls.append(speaker)
+            if speaker in speaker_counts:
+                speaker_counts[speaker] += 1
+            else:
+                speaker_counts[speaker] = 1
+                
+        most_frequent_speaker = max(speaker_counts, key=speaker_counts.get)
+        most_frequent_count = speaker_counts[most_frequent_speaker]
+
+        # print(f"가장 많이 등장한 대화자: 대화자 {most_frequent_speaker}, 등장 횟수: {most_frequent_count}")
+        return turn_idx_ls, most_frequent_speaker
+    
+    def set_anchor(self, turn_idx_ls, turn_emb_ls, most_frequent_speaker, window):
+        '''
+        # anchor를 정하는 함수
+        '''
+        # 기준이 되는 대화자(=most_frequent_speaker)의 인덱스 중 1개 랜덤 샘플링
+        speaker_turns = [i for i, speaker in enumerate(turn_idx_ls) if speaker == most_frequent_speaker]
+        
+        valid_indices = []
+        anchor_turn_idx = None
+        
+        # turn_idx_ls가 window * 2 + 1 보다 작을 경우 샘플링 없이 절반을 anchor를 사용 <- 상의 필요
+        if len(turn_idx_ls) < window * 2 + 1:
+            anchor = turn_emb_ls[0:len(turn_emb_ls)//2]
+        
+        else:
+            # window 사이즈만큼 앞뒤 인덱스를 제외한 범위에서 랜덤하게 하나의 인덱스를 선택
+            valid_indices = [idx for idx in speaker_turns if window <= idx < len(turn_idx_ls) - window]
+            anchor_turn_idx = random.choice(valid_indices)
+            
+            # window 사이즈를 고려하여 anchor에 포함될 turn의 인덱스 범위를 계산
+            start_idx = anchor_turn_idx - window
+            end_idx = anchor_turn_idx + window
+            
+            # 계산된 범위에 해당하는 turn_emb_ls의 값을 가져와서 앵커로 설정
+            anchor = turn_emb_ls[start_idx:end_idx+1]
+            
+        # anchor 리스트의 각 요소를 [1, 768]이 되도록 mean pooling
+        pooled_anchor = [tensor.mean(dim=0, keepdim=True) for tensor in anchor]
+        # mean pooling 결과를 stack: [len(anchor), 768]
+        pooled_anchor = torch.stack(pooled_anchor, dim=0).squeeze()
+        # 텐서의 크기가 [768]일 경우만 [1, 768]으로 변경
+        if pooled_anchor.dim() == 1:
+            pooled_anchor = pooled_anchor.unsqueeze(0)
+        
+        return valid_indices, anchor_turn_idx, anchor, pooled_anchor
+    
+    def generate_pairs(self, valid_indices, anchor_turn_idx, anchor, turn_emb_ls, window):
+        '''
+        pair, hard pair를 생성하는 함수
+        pos를 기준으로 변수를 정의한 것으로, pair의 경우 anchor에 stride를 적용하고, hard pair는 anchor_turn_idx에서 가장 거리가 먼 turn(동일 대화자)을 이용
+        '''
+        
+        # stride 정의: anchor 길이 // 2
+        stride = len(anchor) // 2
+        
+        # turn_emb_ls가 window * 2 + 1 보다 작을 경우
+        if anchor_turn_idx is None: 
+            pair_start_idx , hard_start_idx = len(turn_emb_ls)//2, len(turn_emb_ls)//2
+            pair_end_idx, hard_end_idx = len(turn_emb_ls) - 1, len(turn_emb_ls) - 1
+        
+        else:
+            # Pair
+            pair_start_idx = (anchor_turn_idx + window) - stride + 1 # anchor_turn_idx + window: anchor의 end_idx
+            pair_end_idx = pair_start_idx + len(anchor) - 1
+            
+            # Hard Pair: anchor_turn_idx에서 가장 거리가 먼 turn (동일 대화자)
+            dist_to_first = abs(anchor_turn_idx - valid_indices[0])
+            dist_to_last = abs(anchor_turn_idx - valid_indices[-1])
+            
+            # 더 큰 거리를 가진 인덱스 선택
+            if dist_to_first > dist_to_last:
+                farther_index = valid_indices[0]
+            else:
+                farther_index = valid_indices[-1]
+            
+            hard_start_idx = farther_index - window
+            hard_end_idx = farther_index + window
+        
+        pair = turn_emb_ls[pair_start_idx:pair_end_idx+1]
+        hard_pair = turn_emb_ls[hard_start_idx:hard_end_idx+1]
+        
+        # pair, hard_pair 리스트의 각 요소를 [1, 768]이 되도록 mean pooling
+        # print("============ pair:", len(pair), pair[0].device)
+        # print("hard_start_idx, hard_end_idx:", hard_start_idx, hard_end_idx)
+        # print("============ hard_pair:", len(hard_pair), hard_pair[0].device)
+        pooled_pair = [tensor.mean(dim=0, keepdim=True) for tensor in pair]
+        # print("============ pooled_pair:", len(pooled_pair), pooled_pair[0].device)
+        pooled_hard_pair = [tensor.mean(dim=0, keepdim=True) for tensor in hard_pair]
+        
+        # mean pooling 결과를 stack: [len(pooled_pair), 768], [len(pooled_hard_pair), 768]
+        pooled_pair = torch.stack(pooled_pair, dim=0).squeeze()
+        pooled_hard_pair = torch.stack(pooled_hard_pair, dim=0).squeeze()
+        
+        # 텐서의 크기가 [768]일 경우만 [1, 768]으로 변경
+        if pooled_pair.dim() == 1:
+            pooled_pair = pooled_pair.unsqueeze(0)
+        if pooled_hard_pair.dim() == 1:
+            pooled_hard_pair = pooled_hard_pair.unsqueeze(0)
+        return pair, hard_pair, pooled_pair, pooled_hard_pair
+     # ==============================================================================
+     
+     # ================ our model: generate pairs and calculate loss ================
+    def train_loss_with_sampling(self, pr, nr, p, n, w): # Positive와 Negative 샘플에 대한 임베딩 간 유사도를 계산하고, Contrastive Loss를 계산
         
         loss = []
         
-        for i in range(10): # 하나의 대화단위로 접근
+        for i in range(len(pr)): # 하나의 대화단위로 접근, len(pr)는 전체 대화의 개수
+            # print("pr[i]:", pr[i].shape) # torch.Size([1, 512])
+            # print("nr[i]:", nr[i].shape) # torch.Size([9, 512])
+            # print("p[i]:", p[i].shape) # torch.Size([1, 512, 768])
+            # print("n[i]:", n[i].shape) # torch.Size([9, 512, 768])
+                            
+            # turn 단위로 임베딩 결과 묶은 리스트 생성
+            pos_emb_ls = self.embedding_matching_turn(pr[i], p[i])
+            # 가장 많이 등장한 대화자 찾고, turn 단위로 idx 재정의
+            turn_idx_ls, most_frequent_speaker = self.find_most_frequent_speaker(pr[i])
+            # anchor 생성
+            valid_indices, anchor_turn_idx, anchor, pooled_anchor = self.set_anchor(turn_idx_ls, pos_emb_ls, most_frequent_speaker, w)
+            # postive pair, hard postive pair 생성
+            _, _, pooled_pos, pooled_hard_pos = self.generate_pairs(valid_indices, anchor_turn_idx, anchor, pos_emb_ls, w)
             
-            # print("pr:", pr[i].shape) # torch.Size([1, 512])
-            # print("nr:", nr[i].shape) # torch.Size([9, 512])
-            # print("p:", p[i].shape) # torch.Size([1, 512, 768])
-            # print("n:", n[i].shape) # torch.Size([9, 512, 768])
-                
-            if n[i].shape[0] == self.sample_nums -1: # negtive sample이 9개인 경우
-                
-                pos_turn = self.embedding_matching_role(pr[i], p[i])
-                
-                neg_turn = []
-                for ni in n[i]:
-                    n_turn = self.embedding_matching_role(nr[i], ni.unsqueeze(0))
-                    neg_turn.append(n_turn)
-                neg_turns = torch.cat(neg_turn, dim=0)
-                
-                # 샘플링 진행
-                pos_sample = self.embeddingsampler.run(pos_turn)
-                neg_samples = self.embeddingsampler.run(neg_turns)
-                # print("pos sample:", pos_sample.shape)
-                # print("neg samples:", neg_samples.shape)
-                
-                # loss 계산
-                pos_cos_sim = self.cos(pos_sample.unsqueeze(1), pos_sample.unsqueeze(0)) / self.args.temperature
-                pos_cos_sim = pos_cos_sim.fill_diagonal_(0)
-                # print("pos_cos_sim: ", pos_cos_sim.mean())
-                
-                neg_cos_sim = self.cos(neg_samples.unsqueeze(1), neg_samples.unsqueeze(0)) / self.args.temperature
-                neg_cos_sim = neg_cos_sim.fill_diagonal_(0)
-                # print("neg_cos_sim: ", neg_cos_sim.mean())
-                
-                # criterion = nn.NLLLoss() 인 경우
-                log_probs_pos = nn.LogSoftmax(dim=1)(pos_cos_sim)
-                labels_pos = torch.arange(log_probs_pos.size(0)).long().to(pos_cos_sim.device) # device 설정 부분 주의
-                pos_loss = self.criterion(log_probs_pos, labels_pos)
-
-                
-                log_probs_neg = nn.LogSoftmax(dim=1)(neg_cos_sim)
-                labels_neg = torch.arange(log_probs_neg.size(0)).long().to(neg_cos_sim.device) # device 설정 부분 주의
-                neg_loss = self.criterion(log_probs_neg, labels_neg)
-                
-                # # criterion = nn.CrossEntropyLoss() 인 경우
-                # labels_pos = torch.arange(pos_cos_sim.size(0)).long().to(self.args.device) 
-                # pos_loss = config['criterion'](pos_cos_sim, labels_pos)
-                # labels_neg = torch.arange(neg_cos_sim.size(0)).long().to(self.args.device) 
-                # pos_loss = config['criterion'](neg_cos_sim, labels_neg            
-                
-                # dial_loss = pos_loss / neg_loss
-                dial_loss = pos_loss + neg_loss
-                loss.append(dial_loss)
-                
-            else:
-                pos_turn = self.embedding_matching_role(pr[i], p[i])
-                # loss 계산
-                pos_cos_sim = self.cos(pos_turn.unsqueeze(1), pos_turn.unsqueeze(0)) / self.args.temperature
-                pos_cos_sim = pos_cos_sim.fill_diagonal_(0)
-                # criterion = nn.NLLLoss() 인 경우
-                log_probs_pos = nn.LogSoftmax(dim=1)(pos_cos_sim)
-                labels_pos = torch.arange(log_probs_pos.size(0)).long().to(pos_cos_sim.device) # device 설정 부분 주의
-                pos_loss = self.criterion(log_probs_pos, labels_pos)
-                loss.append(pos_loss)
+            # anchor & postive, anchor & hard postive pair 코사인유사도의 평균 계산
+            p_cos = self.cos(pooled_anchor.unsqueeze(1), pooled_pos.unsqueeze(0)) / self.args.temperature
+            # p_cos = p_cos.fill_diagonal_(0)
+            p_cos_avg = torch.mean(p_cos)
+            hp_cos = self.cos(pooled_anchor.unsqueeze(1), pooled_hard_pos.unsqueeze(0)) / self.args.temperature
+            # hp_cos = hp_cos.fill_diagonal_(0)
+            hp_cos_avg = torch.mean(hp_cos)
+            
+            n_cos_avgs = []
+            for nri, ni in zip(nr[i], n[i]):
+                # print("nr[i].unsqueeze(0):", nri.unsqueeze(0).shape) # torch.Size([1, 512])
+                # print("ni.unsqueeze(0):", ni.unsqueeze(0).shape) # torch.Size([1, 512, 768])
+                neg_emb_ls = self.embedding_matching_turn(nri.unsqueeze(0), ni.unsqueeze(0))
+                # negative pair 생성
+                _, _, _, pooled_neg = self.generate_pairs(valid_indices, anchor_turn_idx, anchor, neg_emb_ls, w)
+                # anchor & negative 코사인유사도의 평균 계산
+                n_cos = self.cos(pooled_anchor.unsqueeze(1), pooled_neg.unsqueeze(0)) / self.args.temperature
+                # n_cos = n_cos.fill_diagonal_(0)
+                n_cos_avg = torch.mean(n_cos)
+                n_cos_avgs.append(n_cos_avg)
+            n_cos_avgs = torch.stack(n_cos_avgs)
+            
+            # loss 계산
+            p_n_cos = torch.cat((p_cos_avg.unsqueeze(0), hp_cos_avg.unsqueeze(0), n_cos_avgs), dim=0)
+            p_n_label = torch.tensor([1., 1., 0., 0., 0., 0., 0., 0. ,0. ,0., 0.]).to(p_n_cos.device)
+            # p_n_label = torch.tensor([1., 1.])
+            # zeros_tensor = torch.zeros(n[i].shape[0])
+            # p_n_label = torch.cat((p_n_label, zeros_tensor), dim=0).to(p_n_cos.device)
+            dial_loss = self.criterion(p_n_cos, p_n_label) # criterion = nn.CrossEntropyLoss(), 가중치 적용 필요
+            loss.append(dial_loss)
+            
                 
         # print("======= loss: =======")
         # print(torch.stack(loss).sum() / len(loss))
 
         return torch.stack(loss).sum() / len(loss)
-
+    # ===========================================================================
+    
     def forward(self, data):
         """
         前向传递过程: "forward" 메서드는 모델의 순전파(forward propagation) 과정을 수행
@@ -205,32 +319,34 @@ class Dial2vec(nn.Module):
         self_output, pooled_output = self.encoder(input_ids, attention_mask, token_type_ids, position_ids, turn_ids, role_ids)
         
         # 우리 모델의 loss 적용
-        # print("======self_output=======")
-        # print(self_output.shape) # torch.Size([100, 512, 768])
-        # print("======pooled_output=======") # torch.Size([100, 768])
-        # print(pooled_output.shape)
-        # print("======role_ids=======") # torch.Size([100, 768])
-        # print(role_ids.shape)
+        # print("+++++++++output before ourmodel++++++++")
+        # print("self_output:", self_output.shape) # torch.Size([100, 512, 768]) / torch.Size([50, 768])
+        # print("pooled_output:", pooled_output.shape) # torch.Size([100, 768]) / torch.Size([50, 768])
+        # print("role_ids:", role_ids.shape) # torch.Size([100, 768]) / torch.Size([50, 768])
         
-        role_id = role_ids.view(10, -1, 512) # self.args.batch_size = 10, self.args.seq_len = 512
+        role_id = role_ids.view(-1, self.sample_nums, self.args.max_seq_length)
         positive_roleid = role_id[:, :1, :]
         negative_roleid = role_id[:, 1:, :] 
+        # print("role_ids:", role_ids.shape)
+        # print("positive_roleid:", positive_roleid.shape)
+        # print("negative_roleid:", negative_roleid.shape)
         
-        _, _, hidden_size = self_output.size()
-        output_embeddings = self_output.view(10, -1, 512, hidden_size)
+        output_embeddings = self_output.view(-1, self.sample_nums, self.args.max_seq_length, self.config.hidden_size)
         positive_embeddings = output_embeddings[:, :1, :, :]
         negative_embeddings = output_embeddings[:, 1:, :, :]
-        # print('self_output:', self_output.shape)
         # print('output_embeddings:', output_embeddings.shape)
+        # print('positive_embeddings:', positive_embeddings.shape)
         # print('negative_embeddings:', negative_embeddings.shape)
+        
         self_output = self_output * attention_mask.unsqueeze(-1)
         self_output = self.avg(self_output, attention_mask)
         self_output = self_output.view(-1, self.sample_nums, self.config.hidden_size)
         pooled_output = pooled_output.view(-1, self.sample_nums, self.config.hidden_size)
         output = self_output[:, 0, :]
         
-        our_loss = self.train_loss_with_sampling(positive_roleid, negative_roleid, positive_embeddings, negative_embeddings).to(output.device)
-
+        our_loss = self.train_loss_with_sampling(positive_roleid, negative_roleid,
+                                                 positive_embeddings, negative_embeddings,
+                                                 self.args.window).to(output.device)
         output_dict = {'loss': our_loss,
                        'final_feature': output 
                        }
@@ -295,4 +411,4 @@ class Dial2vec(nn.Module):
 
     def get_labels_data(self):
         """레이블 데이터를 반환하는 메서드"""
-        return self.labels_data
+        return self.labels_data#
