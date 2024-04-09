@@ -135,7 +135,7 @@ class WrapperBert:
             evaluation_result.acc = er.acc
             evaluation_result.purity = er.purity
 
-        is_best = True if evaluation_result > best_evaluation_result else False     # based on acc, plz ref metrics.py->EvaluationResult.__lr__()
+        is_best = True if evaluation_result.purity > best_evaluation_result.purity else False # based on acc, plz ref metrics.py->EvaluationResult.__lr__()
 
         if 'semantic_relatedness' in tasks or 'session_retrieval' in tasks:
             if is_best or mode == 'test' or force:
@@ -301,11 +301,10 @@ class WrapperBert:
                                                                         mode='test')
                             
                             self.best_model_name = os.path.join(self.args.output_dir,
-                                                      "%s.%s.%st.%s.%sp.best_model.pkl" % (self.args.backbone,
+                                                      "%s.%s.%st.%s.best_model.pkl" % (self.args.backbone,
                                                                                             self.args.dataset,
                                                                                             self.args.temperature,
-                                                                                            self.args.sampler,
-                                                                                            self.args.percentage)) # dial2vec : %swt, self.args.max_turn_view_range
+                                                                                            self.args.window)) # dial2vec : %swt, self.args.max_turn_view_range
                             if self.args.local_rank in [-1, 0]:
                                 torch.save(self.model.module.state_dict(), self.best_model_name)
                                 self.logger.info('Save best model to -> [%s] on LOCAL_RANK=%s' % (self.best_model_name, self.args.local_rank))
@@ -317,8 +316,8 @@ class WrapperBert:
 
                     pbar.update(self.args.train_batch_size)
                     
-            self.logger.info('=' * 10 + 'Epoch Best Testing Result: epoch=%s' % self.best_epoch + '=' * 10)
-            self.best_test_evaluation_result.show(logger=logger, note='test')
+            # self.logger.info('=' * 10 + 'Epoch Best Testing Result: epoch=%s' % self.best_epoch + '=' * 10)
+            # self.best_test_evaluation_result.show(logger=logger, note='test')
         self.logger.info('=' * 10 + 'Final Best Testing Result: epoch=%s' % self.best_epoch + '=' * 10)
         self.best_test_evaluation_result.show(logger=logger, note='test')
 
@@ -386,6 +385,7 @@ if __name__ == '__main__':
     parser.add_argument("--temperature", default=1., type=float)
     parser.add_argument("--sampler", default="greedy_coreset", type=str, help='Options: [identity, greedy_coreset, approx_greedy_coreset')
     parser.add_argument("--percentage", default=0.5, type=float)
+    parser.add_argument("--window", default=2, type=int)
 
     # Data
     parser.add_argument("--data_dir", default='./dial2vec', type=str)

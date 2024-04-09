@@ -4,15 +4,17 @@ import numpy as np
 from typing import Optional, Tuple
 from transformers.models.bert.modeling_bert import BertPooler
 from transformers.file_utils import ModelOutput
+from dataclasses import dataclass
 
 import config as user_config
 from model.plato.configuration_plato import PlatoConfig
 
-
+@dataclass
 class PlatoModelOutput(ModelOutput):
     last_hidden_state: torch.FloatTensor = None
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None
     response_selection_scores: Optional[torch.FloatTensor] = None
+    pooler_output: Optional[torch.FloatTensor] = None
 
 
 class Embedder(nn.Module):
