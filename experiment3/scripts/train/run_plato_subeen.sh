@@ -28,7 +28,7 @@ torchrun run.py \
   --sampler greedy_coreset \
   --percentage 0.5 \
   --window 2 \
-  --data_dir "/home/subeen40/cl_research/dial2vec/datasets/${dataset}" \
-  --model_dir "/home/subeen40/cl_research/dial2vec"
+  --data_dir "/home/subeen38/research/dial2vec/datasets/${dataset}" \
+  --model_dir "/home/subeen38/research/dial2vec"
 
   # > ./logs/dial2vec_${backbone}_${dataset}_${stage}_${num_train_epochs}Epochs_${n_gpu}GPU.log 2>&1
