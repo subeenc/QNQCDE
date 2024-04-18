@@ -1,7 +1,6 @@
 #!/bin/bash
 
-server=43
-gpuno="2,3"
+gpuno="0, 1"
 IFS=',' read -ra ADDR <<< "$gpuno"
 n_gpu=${#ADDR[@]}
 
@@ -29,7 +28,7 @@ torchrun run.py \
   --sampler greedy_coreset \
   --percentage 0.5 \
   --window 2 \
-  --data_dir "/home/subeen${server}/mllab/research/dial2vec/datasets/${dataset}" \
-  --model_dir "/home/subeen${server}/mllab/research/dial2vec"
+  --data_dir "/home/jihyeon41/research_dial_embedding/dial2vec_git/dial2vec/datasets/${dataset}" \
+  --model_dir "/home/jihyeon41/research_dial_embedding/dial2vec_git/dial2vec/"
 
   # > ./logs/dial2vec_${backbone}_${dataset}_${stage}_${num_train_epochs}Epochs_${n_gpu}GPU.log 2>&1
