@@ -67,7 +67,7 @@ class Dial2vec(nn.Module):
         self.logger = args.logger
         
         self.cos = nn.CosineSimilarity(dim=2)
-        self.criterion = nn.CrossEntropyLoss() # nn.NLLLoss()
+        self.criterion = nn.CrossEntropyLoss() # nn.NLLLoss(), nn.CrossEntropyLoss(), nn.BCEWithLogitsLoss()
         
         sampler_name = args.sampler 
         percentage = args.percentage
@@ -75,6 +75,8 @@ class Dial2vec(nn.Module):
         
         if sampler_name == 'identity':
             self.embeddingsampler = IdentitySampler()
+        elif sampler_name == 'base':
+            self.embeddingsampler = GreedyCoresetSampler(percentage)
         elif sampler_name == 'greedy_coreset':
             self.embeddingsampler = GreedyCoresetSampler(percentage, device)
         elif sampler_name == 'approx_greedy_coreset':
@@ -148,7 +150,7 @@ class Dial2vec(nn.Module):
         # print(f"가장 많이 등장한 대화자: 대화자 {most_frequent_speaker}, 등장 횟수: {most_frequent_count}")
         return turn_idx_ls, most_frequent_speaker
     
-    def set_anchor(self, turn_idx_ls, turn_emb_ls, most_frequent_speaker, window):
+    def set_anchor(self, turn_idx_ls, turn_emb_ls, most_frequent_speaker): # window
         '''
         # anchor를 정하는 함수
         '''
@@ -157,6 +159,10 @@ class Dial2vec(nn.Module):
         
         valid_indices = []
         anchor_turn_idx = None
+        
+        # window 정의
+        # window = len(turn_idx_ls) // 4
+        window = 2
         
         # turn_idx_ls가 window * 2 + 1 보다 작을 경우 샘플링 없이 절반을 anchor를 사용 <- 상의 필요
         if len(turn_idx_ls) < window * 2 + 1:
@@ -182,7 +188,7 @@ class Dial2vec(nn.Module):
         if pooled_anchor.dim() == 1:
             pooled_anchor = pooled_anchor.unsqueeze(0)
         
-        return valid_indices, anchor_turn_idx, anchor, pooled_anchor
+        return valid_indices, anchor_turn_idx, anchor, pooled_anchor, window
     
     def generate_pairs(self, valid_indices, anchor_turn_idx, anchor, turn_emb_ls, window):
         '''
@@ -240,7 +246,7 @@ class Dial2vec(nn.Module):
      # ==============================================================================
      
      # ================ our model: generate pairs and calculate loss ================
-    def train_loss_with_sampling(self, pr, nr, p, n, w): # Positive와 Negative 샘플에 대한 임베딩 간 유사도를 계산하고, Contrastive Loss를 계산
+    def train_loss_with_sampling(self, pr, nr, p, n): # Positive와 Negative 샘플에 대한 임베딩 간 유사도를 계산하고, Contrastive Loss를 계산
         
         loss = []
         
@@ -255,9 +261,9 @@ class Dial2vec(nn.Module):
             # 가장 많이 등장한 대화자 찾고, turn 단위로 idx 재정의
             turn_idx_ls, most_frequent_speaker = self.find_most_frequent_speaker(pr[i])
             # anchor 생성
-            valid_indices, anchor_turn_idx, anchor, pooled_anchor = self.set_anchor(turn_idx_ls, pos_emb_ls, most_frequent_speaker, w)
+            valid_indices, anchor_turn_idx, anchor, pooled_anchor, window = self.set_anchor(turn_idx_ls, pos_emb_ls, most_frequent_speaker)
             # postive pair, hard postive pair 생성
-            _, _, pooled_pos, pooled_hard_pos = self.generate_pairs(valid_indices, anchor_turn_idx, anchor, pos_emb_ls, w)
+            _, _, pooled_pos, pooled_hard_pos = self.generate_pairs(valid_indices, anchor_turn_idx, anchor, pos_emb_ls, window)
             
             # anchor & postive, anchor & hard postive pair 코사인유사도의 평균 계산
             p_cos = self.cos(pooled_anchor.unsqueeze(1), pooled_pos.unsqueeze(0)) / self.args.temperature
@@ -268,12 +274,13 @@ class Dial2vec(nn.Module):
             hp_cos_avg = torch.mean(hp_cos)
             
             n_cos_avgs = []
+
             for nri, ni in zip(nr[i], n[i]):
                 # print("nr[i].unsqueeze(0):", nri.unsqueeze(0).shape) # torch.Size([1, 512])
                 # print("ni.unsqueeze(0):", ni.unsqueeze(0).shape) # torch.Size([1, 512, 768])
                 neg_emb_ls = self.embedding_matching_turn(nri.unsqueeze(0), ni.unsqueeze(0))
                 # negative pair 생성
-                _, _, _, pooled_neg = self.generate_pairs(valid_indices, anchor_turn_idx, anchor, neg_emb_ls, w)
+                _, _, _, pooled_neg = self.generate_pairs(valid_indices, anchor_turn_idx, anchor, neg_emb_ls, window)
                 # anchor & negative 코사인유사도의 평균 계산
                 n_cos = self.cos(pooled_anchor.unsqueeze(1), pooled_neg.unsqueeze(0)) / self.args.temperature
                 # n_cos = n_cos.fill_diagonal_(0)
@@ -284,12 +291,66 @@ class Dial2vec(nn.Module):
             # loss 계산
             p_n_cos = torch.cat((p_cos_avg.unsqueeze(0), hp_cos_avg.unsqueeze(0), n_cos_avgs), dim=0)
             p_n_label = torch.tensor([1., 1., 0., 0., 0., 0., 0., 0. ,0. ,0., 0.]).to(p_n_cos.device)
+            # print("######### POS, HARD-POS, NEG X 9", p_n_cos, '##########')
             # p_n_label = torch.tensor([1., 1.])
             # zeros_tensor = torch.zeros(n[i].shape[0])
             # p_n_label = torch.cat((p_n_label, zeros_tensor), dim=0).to(p_n_cos.device)
-            dial_loss = self.criterion(p_n_cos, p_n_label) # criterion = nn.CrossEntropyLoss(), 가중치 적용 필요
+            dial_loss = self.criterion(p_n_cos, p_n_label) # criterion = nn.CrossEntropyLoss(), 가중치 적용 필요, BCE로 변경 필요
             loss.append(dial_loss)
             
+                
+        # print("======= loss: =======")
+        # print(torch.stack(loss).sum() / len(loss))
+
+        return torch.stack(loss).sum() / len(loss)
+    
+    def train_loss_with_coreset_sampling(self, pr, nr, p, n):
+        
+        loss = []
+        
+        for i in range(len(pr)): # 하나의 대화단위로 접근, len(pr)는 전체 대화의 개수
+            # print("pr[i]:", pr[i].shape) # torch.Size([1, 512])
+            # print("nr[i]:", nr[i].shape) # torch.Size([9, 512])
+            # print("p[i]:", p[i].shape) # torch.Size([1, 512, 768])
+            # print("n[i]:", n[i].shape) # torch.Size([9, 512, 768])
+                            
+            # turn 단위로 임베딩 결과 묶은 리스트 생성
+            pos_emb_ls = self.embedding_matching_turn(pr[i], p[i])
+            # 가장 많이 등장한 대화자 찾고, turn 단위로 idx 재정의
+            turn_idx_ls, most_frequent_speaker = self.find_most_frequent_speaker(pr[i])
+            # anchor 생성
+            valid_indices, anchor_turn_idx, anchor, pooled_anchor, window = self.set_anchor(turn_idx_ls, pos_emb_ls, most_frequent_speaker)
+            # postive pair 생성
+            pooled_pos = [tensor.mean(dim=0, keepdim=True) for tensor in pos_emb_ls]
+            pooled_pos = torch.stack(pooled_pos, dim=0).squeeze()
+            pos_samples = self.embeddingsampler.run(pooled_pos).to(pooled_anchor.device)
+            # anchor & postive 코사인유사도의 평균 계산
+            p_cos = self.cos(pooled_anchor.unsqueeze(1), pos_samples.unsqueeze(0)) / self.args.temperature
+            p_cos_avg = torch.mean(p_cos)
+            
+            n_cos_avgs = []
+
+            for nri, ni in zip(nr[i], n[i]):
+                # print("nr[i].unsqueeze(0):", nri.unsqueeze(0).shape) # torch.Size([1, 512])
+                # print("ni.unsqueeze(0):", ni.unsqueeze(0).shape) # torch.Size([1, 512, 768])
+                neg_emb_ls = self.embedding_matching_turn(nri.unsqueeze(0), ni.unsqueeze(0))
+                # negative pair 생성
+                pooled_neg = [tensor.mean(dim=0, keepdim=True) for tensor in neg_emb_ls]
+                pooled_neg = torch.stack(pooled_neg, dim=0).squeeze()
+                neg_samples = self.embeddingsampler.run(pooled_neg).to(pooled_anchor.device)
+                # anchor & negative 코사인유사도의 평균 계산
+                n_cos = self.cos(pooled_anchor.unsqueeze(1), neg_samples.unsqueeze(0)) / self.args.temperature
+                # n_cos = n_cos.fill_diagonal_(0)
+                n_cos_avg = torch.mean(n_cos)
+                n_cos_avgs.append(n_cos_avg)
+            n_cos_avgs = torch.stack(n_cos_avgs)
+            
+            # loss 계산
+            p_n_cos = torch.cat((p_cos_avg.unsqueeze(0), n_cos_avgs), dim=0)
+            p_n_label = torch.tensor([1., 0., 0., 0., 0., 0., 0. ,0. ,0., 0.]).to(p_n_cos.device)
+            # print("######### POS, HARD-POS, NEG X 9", p_n_cos, '##########')
+            dial_loss = self.criterion(p_n_cos, p_n_label) # criterion = nn.CrossEntropyLoss(), 가중치 적용 필요, BCE로 변경 필요
+            loss.append(dial_loss)
                 
         # print("======= loss: =======")
         # print(torch.stack(loss).sum() / len(loss))
@@ -316,13 +377,14 @@ class Dial2vec(nn.Module):
         turn_ids = turn_ids.view(turn_ids.size()[0] * turn_ids.size()[1], turn_ids.size()[-1])
         position_ids = position_ids.view(position_ids.size()[0] * position_ids.size()[1], position_ids.size()[-1])
 
+
         self_output, pooled_output = self.encoder(input_ids, attention_mask, token_type_ids, position_ids, turn_ids, role_ids)
         
         # 우리 모델의 loss 적용
         # print("+++++++++output before ourmodel++++++++")
-        # print("self_output:", self_output.shape) # torch.Size([100, 512, 768]) / torch.Size([50, 768])
-        # print("pooled_output:", pooled_output.shape) # torch.Size([100, 768]) / torch.Size([50, 768])
-        # print("role_ids:", role_ids.shape) # torch.Size([100, 768]) / torch.Size([50, 768])
+        # print("self_output:", self_output.shape) # torch.Size([100, 512, 768])
+        # print("pooled_output:", pooled_output.shape) # torch.Size([100, 768])
+        # print("role_ids:", role_ids.shape) # torch.Size([100, 768])
         
         role_id = role_ids.view(-1, self.sample_nums, self.args.max_seq_length)
         positive_roleid = role_id[:, :1, :]
@@ -344,9 +406,11 @@ class Dial2vec(nn.Module):
         pooled_output = pooled_output.view(-1, self.sample_nums, self.config.hidden_size)
         output = self_output[:, 0, :]
         
-        our_loss = self.train_loss_with_sampling(positive_roleid, negative_roleid,
-                                                 positive_embeddings, negative_embeddings,
-                                                 self.args.window).to(output.device)
+        # our_loss = self.train_loss_with_sampling(positive_roleid, negative_roleid,
+        #                                          positive_embeddings, negative_embeddings).to(output.device) # self.args.window
+
+        our_loss = self.train_loss_with_coreset_sampling(positive_roleid, negative_roleid,
+                                                 positive_embeddings, negative_embeddings).to(output.device)
         output_dict = {'loss': our_loss,
                        'final_feature': output 
                        }
