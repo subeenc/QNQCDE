@@ -393,7 +393,7 @@ if __name__ == '__main__':
     parser.add_argument("--temperature", default=1., type=float)
     parser.add_argument("--sampler", default="greedy_coreset", type=str, help='Options: [identity, base, greedy_coreset, approx_greedy_coreset')
     parser.add_argument("--percentage", default=0.5, type=float)
-    # parser.add_argument("--window", default=2, type=int)
+    parser.add_argument("--lambda_weight", default=0.1, type=float)
 
     # Data
     parser.add_argument("--data_dir", default='./dial2vec', type=str)
