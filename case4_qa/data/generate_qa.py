@@ -1,16 +1,24 @@
 import pandas as pd
 import argparse
 
-class Generatae_QA:
-    def __init__(self, datasetname, path):
+class Generate_QA:
+    def __init__(self, datasetname, mode, path):
         self.datasetname = datasetname
+        self.mode = mode
         self.path = path
         self.column_names = ['turn', 'dialogue', 'label']
 
     def load_data(self):
-        train = pd.read_csv(f'{self.path}{self.datasetname}/train.tsv', sep='\t', header=None, names=self.column_names)
-        train['turn'] = train['turn'].astype('str')
-        return train
+        if self.mode == "train":
+            file_name = "train.tsv"
+        elif self.mode == "dev":
+            file_name = "clustering_dev.tsv"
+        elif self.mode == "test":
+            file_name = "clustering_test.tsv"
+            
+        data = pd.read_csv(f'{self.path}{self.datasetname}/{file_name}', sep='\t', header=None, names=self.column_names)
+        data['turn'] = data['turn'].astype('str')
+        return data
 
     def add_qa_turn(self, dialogues):
         all_qa_turn = []
@@ -49,20 +57,30 @@ class Generatae_QA:
         return train
 
     def save_data(self):
-        train_qa = self.preprocess_data()
-        train_qa.to_csv(f"{self.path}{self.datasetname}/train_qa.tsv", sep="\t", index=False, header=False)
+        data_qa = self.preprocess_data()
+        
+        if self.mode == "train":
+            file_name = "train_qa.tsv"
+        elif self.mode == "dev":
+            file_name = "clustering_dev_qa.tsv"
+        elif self.mode == "test":
+            file_name = "clustering_test_qa.tsv"
+            
+        data_qa.to_csv(f"{self.path}{self.datasetname}/{file_name}", sep="\t", index=False, header=False)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process dataset name and path.")
     parser.add_argument("--datasetname", type=str, help="Name of the dataset (mwoz, selfdialog, sgd).")
+    parser.add_argument("--mode", type=str, help="Mode of the dataset (train, dev, test).")
     parser.add_argument("--path", type=str, help="Path to the dataset directory.")
     args = parser.parse_args()
 
-    generate_qa = Generatae_QA(args.datasetname, args.path)
+    generate_qa = Generate_QA(args.datasetname, args.mode, args.path)
     generate_qa.save_data()
 
-# python generate_qa.py --datasetname sgd --path /home/jihyeon41/research_dial_embedding/dial2vec_git/dial2vec/datasets/
+# python generate_qa.py --datasetname sgd --mode train --path /home/jihyeon41/research_dial_embedding/dial2vec_git/dial2vec/datasets/
+
 
 
 

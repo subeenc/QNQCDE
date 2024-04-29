@@ -18,7 +18,7 @@ from utils import split_matrix
 
 class WrapperBert:
     """
-    Dial2vec模型训练包装器
+    Dial2vec模型训练包装器: Dial2vec 모델 트레이닝
     """
     def __init__(self, args):
         self.args = args
@@ -52,7 +52,6 @@ class WrapperBert:
         self.model = Dial2vec(self.args)
         self.init_bert(init_checkpoint)
         self.model.set_finetune()
-        # print("------------model to device-----------")
         self.model = self.model.to(self.args.device)
 
     def cosine_similarity(self, x, y):
@@ -73,19 +72,13 @@ class WrapperBert:
 
     def eval_tasks(
         self,
-        strategy: str = 'mean_by_role',
-        role: str = 'all',
         tasks: List[str] = None,
         mode: str = 'test',
         force: bool = False,
         features: np.array = None
     ):
         """
-        集成评估API
-        :param strategy:    str             embedding strategy
-                                            [Options: mean: mean,
-                                                      mean_by_role: mean w.r.t. role first, then add them together.]
-        :param role:        str             Using the features from which interlocutor
+        集成评估API: 평가 API
         :param task:        List[str]
         :param mode:        str
         :param force:       bool            If force=True, we evaluate all metrics.
@@ -96,30 +89,39 @@ class WrapperBert:
 
         if features is None:
             self.model.eval()
-            test_loader = self.data_provider.get_clustering_test_loader(mode=mode)
+            test_loader = self.data_provider.get_clustering_test_loader(mode=mode) # 출력값 확인 필요
 
             features = []
             with torch.no_grad():
                 for step, batch in enumerate(test_loader):
                     batch = tuple(t.to(self.args.device) for t in batch)
-                    output_dict = self.model(data=batch, strategy=strategy)
-                    role2feat = {'all': 'final_feature', 'p1': 'q_feature', 'p2': 'r_feature'}
-                    feature = output_dict[role2feat[role]]
+                    output_dict = self.model(data=batch)
+                    feature = output_dict['final_feature']
+                    # print("==============cluster data input: feature==============")
+                    # print(len(feature)) # 10
                     features.append(feature)
             features = torch.cat(features)
             cpu_features = features.cpu()
         else:
             cpu_features = torch.tensor(features)
             features = cpu_features.to(self.args.device)
-
+        
+        # print("==============cluster data input: features==============")
+        # print(features.shape)  # torch.Size([661, 768])
+        
         test_path = os.path.join(self.args.data_dir, "clustering_%s.tsv" % mode)
         with codecs.open(test_path, "r", "utf-8") as f:
             labels = [int(line.strip('\n').split("\t")[-1]) for line in f]
+        # print('============= labels:==============')
+        # print(len(labels))
 
         best_evaluation_result = self.best_test_evaluation_result if mode == 'test' else self.best_dev_evaluation_result
-        evaluation_result = EvaluationResult()
+        evaluation_result = EvaluationResult() # 초기화하고 출력 형식 나타내는 함수라고 이해
         if 'clustering' in tasks:
             n_average = max(3, 10 - features.shape[0] // 500)
+            
+            # print("==============cluster data input: features.shape[0], n_average==============")
+            # print(features.shape[0], n_average) 
             er = feature_based_evaluation_at_once(features=cpu_features,
                                                   labels=labels,
                                                   n_average=n_average,
@@ -127,13 +129,13 @@ class WrapperBert:
                                                   tasks=['clustering'],
                                                   dtype='float32',
                                                   logger=None,
-                                                  note=','.join([mode, strategy, role]))
+                                                  note=','.join([mode]))
             evaluation_result.RI = er.RI
             evaluation_result.NMI = er.NMI
             evaluation_result.acc = er.acc
             evaluation_result.purity = er.purity
 
-        is_best = True if evaluation_result > best_evaluation_result else False     # based on acc, plz ref metrics.py->EvaluationResult.__lr__()
+        is_best = True if evaluation_result.purity > best_evaluation_result.purity else False # based on acc, plz ref metrics.py->EvaluationResult.__lr__()
 
         if 'semantic_relatedness' in tasks or 'session_retrieval' in tasks:
             if is_best or mode == 'test' or force:
@@ -144,7 +146,7 @@ class WrapperBert:
                                                       tasks=['semantic_relatedness', 'session_retrieval'],
                                                       dtype='float32',
                                                       logger=None,
-                                                      note=','.join([mode, strategy, role]))
+                                                      note=','.join([mode]))
 
                 evaluation_result.SR = er.SR
                 evaluation_result.MRR = er.MRR
@@ -160,18 +162,17 @@ class WrapperBert:
                                                       tasks=['align_uniform'],
                                                       dtype='float32',
                                                       logger=None,
-                                                      note=','.join([mode, strategy, role]))
+                                                      note=','.join([mode]))
 
                 evaluation_result.alignment = er.alignment
                 evaluation_result.adjusted_alignment = er.adjusted_alignment
                 evaluation_result.uniformity = er.uniformity
 
-        evaluation_result.show(logger=self.logger,
-                               note=','.join([mode, strategy, role]))
+        evaluation_result.show(logger=self.logger, note=','.join([mode]))
 
         return is_best, evaluation_result
 
-    def get_feature(self, mode, output_filename, strategy='mean_by_role', role='all'):
+    def get_feature(self, mode, output_filename):
         """
         generate features for dialogues
         :param: mode
@@ -185,9 +186,8 @@ class WrapperBert:
             with tqdm(total=feature_loader.__len__() * self.args.test_batch_size, ncols=90, disable=self.disable_tqdm) as pbar:
                 for step, batch in enumerate(feature_loader):
                     batch = tuple(t.to(self.args.device) for t in batch)
-                    output_dict = self.model(batch, strategy=strategy)
-                    role2feat = {'all': 'final_feature', 'p1': 'q_feature', 'p2': 'r_feature'}
-                    feature = output_dict[role2feat[role]]
+                    output_dict = self.model(batch)
+                    feature = output_dict['final_feature']
                     features.append(feature)
                     guids.append(batch[7][:, 0])
                     pbar.update(self.args.test_batch_size)
@@ -195,8 +195,8 @@ class WrapperBert:
         features = torch.cat(features).detach().cpu().numpy()
         guids = torch.cat(guids).detach().cpu().numpy()
 
-        splited_features = np.split(features, np.unique(guids, return_index=True)[1][1:])
-        final_features = [np.mean(splited_feature, axis=0) for splited_feature in splited_features]
+        splited_features = np.split(features, np.unique(guids, return_index=True)[1][1:]) 
+        final_features = [np.mean(splited_feature, axis=0) for splited_feature in splited_features] # 대화자별 평균 적용한 최종 임베딩 결과
         final_features = np.stack(final_features)
 
         pickle.dump(obj={'features': features,
@@ -208,7 +208,7 @@ class WrapperBert:
 
     def train(self):
         """
-        训练Dial2vec模型
+        训练Dial2vec模型: Train Dial2vec Model
         """
         self.logger.info("device: %s n_gpu: %s" % (self.args.device, self.args.n_gpu))
 
@@ -234,33 +234,36 @@ class WrapperBert:
             self.model, optimizer = amp.initialize(self.model, optimizer, opt_level=self.args.fp16_opt_level)
 
         if self.args.n_gpu > 1:
-            self.logger.info(f"DataParallel")
             self.model = torch.nn.DataParallel(self.model)
 
         if self.args.local_rank != -1:
-            self.logger.info(f"DistributedDataParallel")
-            self.model = torch.nn.parallel.DistributedDataParallel(self.model,
-                                                                   device_ids=[self.args.local_rank],
-                                                                   output_device=self.args.local_rank,
-                                                                   find_unused_parameters=False)   # 如果没有不参与计算的权重，find_unused_parameters=False可以提升运算速度。
+            # 아래는 local_rank 에러 해결을 위해 추가한 if 문장 하나
+            if 'LOCAL_RANK' in os.environ:
+                self.logger.info(f"DistributedDataParallel")
+                self.model = torch.nn.parallel.DistributedDataParallel(self.model,
+                                                                    device_ids=[self.args.local_rank],
+                                                                    output_device=self.args.local_rank,
+                                                                    find_unused_parameters=False)   # 如果没有不参与计算的权重，find_unused_parameters=False可以提升运算速度。
 
-        # 清空evaluation result cache, 避免vanilla backbone的影响
+        # 清空evaluation result cache, 避免vanilla backbone的影响: 평가 결과 캐시를 지워 기본 백본의 영향을 피할 것
         self.best_test_evaluation_result = EvaluationResult()
 
-        # 启动训练模式
+        # 启动训练模式: 훈련 모드를 시작
         self.model.train()
-        # self.model.do(self.args.device)
 
         train_loader = self.data_provider.get_train_loader()
         for epoch in range(int(self.args.num_train_epochs)):
             with tqdm(total=train_loader.__len__() * self.args.train_batch_size, ncols=90, disable=self.disable_tqdm) as pbar:
                 for step, batch in enumerate(train_loader):
                     batch = tuple(t.to(self.args.device) for t in batch)
-                    output_dict = self.model(data=batch, strategy='mean_by_role')
-                    loss = output_dict['loss']
+                    # print("=======batch: ", batch)
+                    output_dict = self.model(batch)
 
+                    loss = output_dict['loss']
+                    
                     if self.args.n_gpu > 1:
                         loss = loss.mean()  # mean() to average on multi-gpu.
+                        # print("=======loss: ", loss)
                     if self.args.gradient_accumulation_steps > 1:
                         loss = loss / self.args.gradient_accumulation_steps
 
@@ -272,7 +275,7 @@ class WrapperBert:
                     else:
                         loss.backward()
 
-                    # 梯度裁剪
+                    # 梯度裁剪: 그래디언트 클리핑
                     # if self.args.fp16:
                     #     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), -10, 10)
                     # else:
@@ -282,142 +285,47 @@ class WrapperBert:
                         optimizer.step()
                         global_step += 1
 
+                    # print("=============global_step=============")
+                    # print(global_step)
                     if global_step % self.args.print_interval == 0:
                         pbar.set_postfix(epoch=epoch, global_step=global_step, train_loss=float(loss.item()))
 
                     if global_step % self.args.test_interval == 0:
-                        is_best, dev_evaluation_result = self.eval_tasks(strategy='mean_by_role',
-                                                                         tasks=['clustering', 'semantic_relatedness', 'session_retrieval', 'align_uniform'],
+                        is_best, dev_evaluation_result = self.eval_tasks(tasks=['clustering', 'semantic_relatedness', 'session_retrieval', 'align_uniform'],
                                                                          mode='dev',
                                                                          force=True)
+                        # print('===== is_best, dev_evaluation_result =====')
+                        # print(is_best)
+                        # print(dev_evaluation_result)
+                        
                         if is_best:
                             self.best_epoch = epoch
-                            _, test_evaluation_result = self.eval_tasks(strategy='mean_by_role',
-                                                                        tasks=['clustering', 'semantic_relatedness', 'session_retrieval', 'align_uniform'],
+                            _, test_evaluation_result = self.eval_tasks(tasks=['clustering', 'semantic_relatedness', 'session_retrieval', 'align_uniform'],
                                                                         mode='test')
+                            
                             self.best_model_name = os.path.join(self.args.output_dir,
-                                                      "%s.%s.%st.%sws.best_model.pkl" % (self.args.backbone,
-                                                                                         self.args.dataset,
-                                                                                         self.args.temperature,
-                                                                                         self.args.max_turn_view_range))
+                                                      "%s.%s.%st.best_model.pkl" % (self.args.backbone,
+                                                                                            self.args.dataset,
+                                                                                            self.args.temperature)) # dial2vec : %swt, self.args.max_turn_view_range
                             if self.args.local_rank in [-1, 0]:
                                 torch.save(self.model.module.state_dict(), self.best_model_name)
                                 self.logger.info('Save best model to -> [%s] on LOCAL_RANK=%s' % (self.best_model_name, self.args.local_rank))
                             self.best_dev_evaluation_result = dev_evaluation_result
                             self.best_test_evaluation_result = test_evaluation_result
 
-                        # 恢复训练模式
+                        # 恢复训练模式: 훈련 모드로 복원
                         self.model.train()
 
                     pbar.update(self.args.train_batch_size)
-
+                    
+            # self.logger.info('=' * 10 + 'Epoch Best Testing Result: epoch=%s' % self.best_epoch + '=' * 10)
+            # self.best_test_evaluation_result.show(logger=logger, note='test')
         self.logger.info('=' * 10 + 'Final Best Testing Result: epoch=%s' % self.best_epoch + '=' * 10)
-        self.best_test_evaluation_result.show(logger=logger, note='test,mean_by_role')
-
-    def visualize_attention(self, visualization_image_output=None, visualization_html_output=None):
-        self.model.eval()
-        test_loader = self.data_provider.get_clustering_test_loader(mode='test')
-        with torch.no_grad():
-            for step, batch in enumerate(test_loader):
-                batch = tuple(t.to(self.args.device) for t in batch)
-                output_dict = self.model(batch,
-                                         strategy='mean_by_role',
-                                         output_attention=True)
-                attention_weight = output_dict['attention']
-                attention_weight = attention_weight[0].detach().cpu()
-                break
-
-            mask = (attention_weight == 0.).float()
-            attention_weight = torch.softmax(attention_weight + mask * -1e9, dim=-1)
-            attention_weight = attention_weight * (1 - mask)
-
-            input_ids = batch[0][0, 0, :]
-            role_ids = batch[3][0, 0, :]
-            turn_ids = batch[4][0, 0, :]
-
-            tokenizer = self.data_provider.get_tokenizer()
-            input_tokens = tokenizer.convert_ids_to_tokens(input_ids)
-            textual_show = '=' * 10 + 'Session' + '=' * 10 + '\n'
-            pre_role = 'A' if role_ids[0] == 1 else 'B'
-            textual_show += '%s: ' % pre_role
-
-            for i, token in enumerate(input_tokens):
-                if input_tokens[i] == '[PAD]':
-                    break
-                now_role = 'A' if role_ids[i] == 1 else 'B'
-
-                if input_tokens[i].startswith('##'):
-                    space_flag = False
-                else:
-                    space_flag = True
-
-                if now_role == pre_role:
-                    textual_show += input_tokens[i].lstrip('#')
-                else:
-                    textual_show += '\n%s: ' % now_role + input_tokens[i].lstrip('#')
-
-                if space_flag:
-                    textual_show += ' '
-
-                pre_role = now_role
-
-            textual_show += '\n' + '=' * 10 + 'End' + '=' * 10 + '\n'
-
-            turn_lengths = []
-            pre_turn_id, cache_turn_id = turn_ids[0], [turn_ids[0]]
-            for i in range(1, len(turn_ids)):
-                if pre_turn_id != 0 and turn_ids[i] == 0:   # meet [PAD]
-                    break
-
-                if turn_ids[i] == pre_turn_id:
-                    cache_turn_id.append(turn_ids[i])
-                else:
-                    turn_lengths.append(len(cache_turn_id))
-                    cache_turn_id = [turn_ids[i]]
-                    pre_turn_id = turn_ids[i]
-            if cache_turn_id:
-                turn_lengths.append(len(cache_turn_id))
-                cache_turn_id = []
-
-            output_matrix = split_matrix(matrix=attention_weight[:sum(turn_lengths), :sum(turn_lengths)],
-                                         lengths=turn_lengths,
-                                         reduction='mean')
-
-            eps = 1e-6
-            mask = output_matrix < eps
-            fig = plt.figure(figsize=(10, 10))
-            axis = seaborn.heatmap(output_matrix.numpy(),
-                                   vmin=output_matrix[output_matrix > eps].min().numpy(),
-                                   vmax=output_matrix[output_matrix > eps].max().numpy(),
-                                   cmap="PuBu",
-                                   mask=mask.numpy(),
-                                   annot=True,
-                                   fmt='.2f')
-            plt.xticks(ticks=np.arange(len(turn_lengths)) + 0.5, labels=np.arange(len(turn_lengths)))
-            plt.yticks(ticks=np.arange(len(turn_lengths)) + 0.5, labels=np.arange(len(turn_lengths)))
-            plt.savefig(visualization_image_output, bbox_inches="tight")
-            plt.close()
-
-            HTML = """<!DOCTYPE html>
-                <html>
-                <head> 
-                <meta charset="utf-8"> 
-                <title>Visualization</title> 
-                </head>
-                <body>
-
-                <img border="0" src="%s" alt="Image">
-                <h2>Case</h2>
-                %s
-                </body>
-                </html>""" % (os.path.split(visualization_image_output)[-1], textual_show.replace('\n', ' <br> '))
-
-            with open(visualization_html_output, 'w', encoding='utf-8') as writer:
-                writer.write(HTML)
+        self.best_test_evaluation_result.show(logger=logger, note='test')
 
     def init_bert(self, init_checkpoint=None):
         """
-        初始化BERT模型
+        初始化BERT模型: BERT 모델 초기화
         """
         if init_checkpoint is not None:
             state_dict = torch.load(self.args.init_checkpoint, map_location="cpu")
@@ -452,9 +360,12 @@ if __name__ == '__main__':
     ## fp 16 training
     parser.add_argument("--fp16", action="store_true", help="float16 training")
     parser.add_argument("--fp16_opt_level", default="O1", type=str, help="For fp16: Apex AMP optimization level selected in ['O0', 'O1', 'O2', and 'O3']")
+    
     ## DDP
-    # parser.add_argument("--local_rank", default=-1, type=int, help="local rank for DDP training.")
+    # local_rank 에러 해결을 위해 수정
+    #parser.add_argument("--local_rank", default=0, type=int, help="local rank for DDP training.")
     parser.add_argument("--local_rank", type=int, default=os.environ.get('LOCAL_RANK', 0), help="local rank for DDP training.")
+    
     ## Optimization
     parser.add_argument("--train_batch_size", default=5, type=int, help='Be careful when using multi-gpu.')
     parser.add_argument("--test_batch_size", default=10, type=int, help='Be careful when using multi-gpu.')
@@ -462,7 +373,8 @@ if __name__ == '__main__':
     parser.add_argument("--num_train_epochs", default=15, type=int)
     parser.add_argument("--learning_rate", default=1e-5, type=float)
     parser.add_argument("--warmup_proportion", default=0.1, type=float)
-    parser.add_argument("--gradient_accumulation_steps", default=1, type=int)  # modify, default 1
+    parser.add_argument("--gradient_accumulation_steps", default=1, type=int)
+    
     ## interval
     parser.add_argument("--print_interval", default=20, type=int)
     parser.add_argument("--test_interval", default=100, type=int)
@@ -475,6 +387,8 @@ if __name__ == '__main__':
     parser.add_argument("--temperature", default=1., type=float)
 
     # Data
+    parser.add_argument("--data_dir", default='./dial2vec', type=str)
+    parser.add_argument("--model_dir", default='./dial2vec', type=str)
     parser.add_argument("--max_seq_length", default=512, type=int)
     parser.add_argument("--max_turn_view_range", default=1000, type=int)
     parser.add_argument("--max_context_length", default=15, type=int)
@@ -484,13 +398,12 @@ if __name__ == '__main__':
 
     # general configuration
     work_dir = os.path.dirname(os.path.realpath(__file__))
-    print(work_dir)
 
     if args.init_checkpoint is not None:
         if args.init_checkpoint.endswith('pt'):
-            args.init_checkpoint = os.path.join(work_dir, "model", args.init_checkpoint)
+            args.init_checkpoint = os.path.join(args.model_dir, "model", args.init_checkpoint)
         elif args.init_checkpoint.endswith('pkl'):
-            args.init_checkpoint = os.path.join(work_dir, "output", args.init_checkpoint)
+            args.init_checkpoint = os.path.join(work_dir, "output", args.init_checkpoint) # output 폴더에 dial2vec의 모델 넣어야함, 추후 변경 필요
 
     if args.feature_checkpoint is not None:
         if args.feature_checkpoint.endswith('pt'):
@@ -499,7 +412,7 @@ if __name__ == '__main__':
             args.feature_checkpoint = os.path.join(work_dir, "output", args.feature_checkpoint)
 
     args.config_file = os.path.join(work_dir, "model", args.config_file)
-    args.data_dir = os.path.join(work_dir, "datasets/%s" % args.dataset)
+    # args.data_dir = os.path.join(args.datasets_dir, "datasets/%s" % args.dataset)
     args.output_dir = os.path.join(work_dir, "output")   # dumb directory setting
 
     # logging configuration
@@ -510,26 +423,25 @@ if __name__ == '__main__':
     args.logger = logger
 
     # GPU configuration
-    # if args.local_rank == -1:
-    #     print('----------------local rank -1----------------')
-    #     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    #     args.n_gpu = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    # 아래는 local_rank 에러 해결을 위해 if문에 or을 추가한 코드
     if args.local_rank == -1 or 'LOCAL_RANK' not in os.environ:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         args.n_gpu = torch.cuda.device_count() if torch.cuda.is_available() else 0
-
+        
     else:
-        print(f"-----------------------------local rank {args.local_rank}-----------------------------")
-        # 每个进程根据自己 的local_rank来设置应该使用的GPU
+        # 每个进程根据自己 的local_rank来设置应该使用的GPU: 각 프로세스는 자신의 local_rank에 따라 사용해야 할 GPU를 설정
+        # 아래는 local_rank 에러 해결을 위해 일단 추가한 코드
+        args.local_rank = int(os.environ['LOCAL_RANK'])
         torch.cuda.set_device(args.local_rank)
         device = torch.device('cuda', args.local_rank)
         torch.distributed.init_process_group(backend='nccl')
-        # args.n_gpu = 1
+        # 병렬 처리를 위해 코드 변경
+        #args.n_gpu = 1
         args.n_gpu = torch.cuda.device_count() if torch.cuda.is_available() else 0
     args.device = device
 
     args.logger.info(args)
-    
+
     torch.set_printoptions(profile="full")
     wrapper = WrapperBert(args)
     wrapper.init_data_socket()
@@ -537,8 +449,7 @@ if __name__ == '__main__':
 
     if args.stage == "train":
         pre_train_time = time()
-        wrapper.eval_tasks(strategy='mean',
-                           tasks=['clustering', 'semantic_relatedness', 'session_retrieval'],
+        wrapper.eval_tasks(tasks=['clustering', 'semantic_relatedness', 'session_retrieval'],
                            mode='test',
                            force=True)
         wrapper.train()
@@ -548,21 +459,13 @@ if __name__ == '__main__':
         logger.info('Total time costs: %s mins' % ((time() - pre_train_time) / 60))
     elif args.stage == "test":
         pre_test_time = time()
-        wrapper.eval_tasks(strategy='mean_by_role',
-                           role='all',
-                           tasks=['clustering', 'semantic_relatedness', 'session_retrieval', 'align_uniform'],
+        wrapper.eval_tasks(tasks=['clustering', 'semantic_relatedness', 'session_retrieval', 'align_uniform'],
                            mode='test')
-        wrapper.eval_tasks(strategy='mean',
-                           role='all',
-                           tasks=['clustering', 'semantic_relatedness', 'session_retrieval'],
+        wrapper.eval_tasks(tasks=['clustering', 'semantic_relatedness', 'session_retrieval'],
                            mode='test')
-        wrapper.eval_tasks(strategy='mean_by_role',
-                           role='p1',
-                           tasks=['clustering', 'semantic_relatedness', 'session_retrieval'],
+        wrapper.eval_tasks(tasks=['clustering', 'semantic_relatedness', 'session_retrieval'],
                            mode='test')
-        wrapper.eval_tasks(strategy='mean_by_role',
-                           role='p2',
-                           tasks=['clustering', 'semantic_relatedness', 'session_retrieval'],
+        wrapper.eval_tasks(tasks=['clustering', 'semantic_relatedness', 'session_retrieval'],
                            mode='test')
         logger.info('Total time costs: %s mins' % ((time() - pre_test_time) / 60))
     elif args.stage == 'embedding':
@@ -573,9 +476,7 @@ if __name__ == '__main__':
         pre_embedding_time = time()
         data = pickle.load(open(args.feature_checkpoint, 'rb'))
         features = data['final_features']
-        wrapper.eval_tasks(strategy='mean_by_role',
-                           role='all',
-                           tasks=['clustering', 'semantic_relatedness', 'session_retrieval'],
+        wrapper.eval_tasks(tasks=['clustering', 'semantic_relatedness', 'session_retrieval'],
                            mode='test',
                            force=True,
                            features=features)
