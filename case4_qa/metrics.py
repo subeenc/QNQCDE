@@ -585,7 +585,7 @@ def feature_based_evaluation_at_once(features, labels, gpu_features=None, n_aver
         for _ in range(n_average):
             # clustering
             pre = time()
-            clf = KMeans(n_clusters=len(label_set), max_iter=500, tol=1e-5)
+            clf = KMeans(n_clusters=len(label_set), max_iter=500, tol=1e-5, n_init=10)
             clf.fit(features)
             y_pred = clf.predict(features)
             clustering_time += (time() - pre) / n_average

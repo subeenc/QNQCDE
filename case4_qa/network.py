@@ -80,10 +80,10 @@ class Dial2vec(nn.Module):
         """
         前向传递过程
         """
-        if len(data) == 7:
-            input_ids, attention_mask, token_type_ids, role_ids, turn_ids, position_ids, labels = data
+        if len(data) == 8: # 수정: qa 추가
+            input_ids, attention_mask, token_type_ids, role_ids, turn_ids, position_ids, qa_ids, labels = data
         else:
-            input_ids, attention_mask, token_type_ids, role_ids, turn_ids, position_ids, labels, guids = data
+            input_ids, attention_mask, token_type_ids, role_ids, turn_ids, position_ids, qa_ids, labels, guids = data
 
         input_ids = input_ids.view(input_ids.size()[0] * input_ids.size()[1], input_ids.size()[-1])
         attention_mask = attention_mask.view(attention_mask.size()[0] * attention_mask.size()[1], attention_mask.size()[-1])
@@ -91,24 +91,28 @@ class Dial2vec(nn.Module):
         role_ids = role_ids.view(role_ids.size()[0] * role_ids.size()[1], role_ids.size()[-1])
         turn_ids = turn_ids.view(turn_ids.size()[0] * turn_ids.size()[1], turn_ids.size()[-1])
         position_ids = position_ids.view(position_ids.size()[0] * position_ids.size()[1], position_ids.size()[-1])
+        qa_ids = qa_ids.view(qa_ids.size()[0] * qa_ids.size()[1], qa_ids.size()[-1])
+        # print("role_ids:", role_ids.shape) # torch.Size([100, 512])
+        # print("qa_ids:", qa_ids.shape) # torch.Size([100, 512])
 
-        one_mask = torch.ones_like(role_ids)
-        zero_mask = torch.zeros_like(role_ids)
-        role_a_mask = torch.where(role_ids == 0, one_mask, zero_mask)
-        role_b_mask = torch.where(role_ids == 1, one_mask, zero_mask)
+        # 필요 시, qa_ids=2, 3 에 대한 조건 추가할 것
+        one_mask = torch.ones_like(qa_ids) # 모든 요소 1로 초기화
+        zero_mask = torch.zeros_like(qa_ids) # 모든 요소 0으로 초기화
+        q_mask = torch.where((qa_ids == 1) | (qa_ids == 2), one_mask, zero_mask) # qa_ids가 1, 2인 경우에 1, 그렇지 않으면 0 
+        a_mask = torch.where((qa_ids == 0) | (qa_ids == 2), one_mask, zero_mask) # qa_ids가 0, 2인 경우에 1, 그렇지 않으면 0 
 
         sep_token_id = self.sep_token_id if self.args.use_sep_token else -1
 
-        a_attention_mask = (attention_mask * role_a_mask)
-        b_attention_mask = (attention_mask * role_b_mask)
+        q_attention_mask = (attention_mask * q_mask)
+        a_attention_mask = (attention_mask * a_mask)
 
         self_output, pooled_output = self.encoder(input_ids, attention_mask, token_type_ids, position_ids, turn_ids, role_ids)
 
-        q_self_output = self_output * a_attention_mask.unsqueeze(-1)
-        r_self_output = self_output * b_attention_mask.unsqueeze(-1)
+        q_self_output = self_output * q_attention_mask.unsqueeze(-1)
+        a_self_output = self_output * a_attention_mask.unsqueeze(-1)
 
         self_output = self_output * attention_mask.unsqueeze(-1)
-        w = torch.matmul(q_self_output, r_self_output.transpose(-1, -2))
+        w = torch.matmul(q_self_output, a_self_output.transpose(-1, -2))
 
         if turn_ids is not None:
             view_turn_mask = turn_ids.unsqueeze(1).repeat(1, self.args.max_seq_length, 1)
@@ -119,49 +123,53 @@ class Dial2vec(nn.Module):
             filtered_w = w * view_range_mask
 
         q_cross_output = torch.matmul(filtered_w.permute(0, 2, 1), q_self_output)
-        r_cross_output = torch.matmul(filtered_w, r_self_output)
+        a_cross_output = torch.matmul(filtered_w, a_self_output)
 
-        q_self_output = self.avg(q_self_output, a_attention_mask)
-        q_cross_output = self.avg(q_cross_output, b_attention_mask)
-        r_self_output = self.avg(r_self_output, b_attention_mask)
-        r_cross_output = self.avg(r_cross_output, a_attention_mask)
+        q_self_output = self.avg(q_self_output, q_attention_mask)
+        q_cross_output = self.avg(q_cross_output, a_attention_mask)
+        a_self_output = self.avg(a_self_output, a_attention_mask)
+        a_cross_output = self.avg(a_cross_output, q_attention_mask)
 
         self_output = self.avg(self_output, attention_mask)
         q_self_output = q_self_output.view(-1, self.sample_nums, self.config.hidden_size)
         q_cross_output = q_cross_output.view(-1, self.sample_nums, self.config.hidden_size)
-        r_self_output = r_self_output.view(-1, self.sample_nums, self.config.hidden_size)
-        r_cross_output = r_cross_output.view(-1, self.sample_nums, self.config.hidden_size)
+        a_self_output = a_self_output.view(-1, self.sample_nums, self.config.hidden_size)
+        a_cross_output = a_cross_output.view(-1, self.sample_nums, self.config.hidden_size)
 
         self_output = self_output.view(-1, self.sample_nums, self.config.hidden_size)
         pooled_output = pooled_output.view(-1, self.sample_nums, self.config.hidden_size)
 
         output = self_output[:, 0, :]
         q_output = q_self_output[:, 0, :]
-        r_output = r_self_output[:, 0, :]
+        a_output = a_self_output[:, 0, :]
         q_contrastive_output = q_cross_output[:, 0, :]
-        r_contrastive_output = r_cross_output[:, 0, :]
+        a_contrastive_output = a_cross_output[:, 0, :]
 
         logit_q = []
-        logit_r = []
+        logit_a = []
         for i in range(self.sample_nums):
             cos_q = self.calc_cos(q_self_output[:, i, :], q_cross_output[:, i, :])
-            cos_r = self.calc_cos(r_self_output[:, i, :], r_cross_output[:, i, :])
-            logit_r.append(cos_r)
+            cos_a = self.calc_cos(a_self_output[:, i, :], a_cross_output[:, i, :])
+            # if i == 0:
+            #     print("cosine similarity")
+            #     print(cos_q)
+            #     print(cos_a)
+            logit_a.append(cos_a)
             logit_q.append(cos_q)
 
-        logit_r = torch.stack(logit_r, dim=1)
+        logit_a = torch.stack(logit_a, dim=1)
         logit_q = torch.stack(logit_q, dim=1)
 
-        loss_r = self.calc_loss(logit_r, labels)
+        loss_a = self.calc_loss(logit_a, labels)
         loss_q = self.calc_loss(logit_q, labels)
 
         if strategy not in ['mean', 'mean_by_role']:
             raise ValueError('Unknown strategy: [%s]' % strategy)
 
-        output_dict = {'loss': loss_r + loss_q,
-                       'final_feature': output if strategy == 'mean' else q_output + r_output,
+        output_dict = {'loss': loss_a + loss_q,
+                       'final_feature': output if strategy == 'mean' else q_output + a_output,
                        'q_feature': q_output,
-                       'r_feature': r_output,
+                       'r_feature': a_output,
                        'attention': w}
 
         return output_dict
@@ -204,6 +212,9 @@ class Dial2vec(nn.Module):
         计算cosine相似度
         """
         cos = torch.cosine_similarity(x, y, dim=1)
+        # 수정: 코사인 유사도가 1인 경우는 0으로 (nan 값으로도 해보기)
+        mask = (cos == 1)
+        cos[mask] = 0
         cos = cos / self.args.temperature   # cos = cos / 2.0
         return cos
 

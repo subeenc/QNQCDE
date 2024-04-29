@@ -26,22 +26,23 @@ def line_statistics(file_name):
 
 
 class BertExample():
-    def __init__(self, guid, role, text_a, text_b=None, label=None):
+    def __init__(self, guid, role, qa, text_a, text_b=None, label=None):
         self.guid = guid
         self.role = role
         self.text_a = text_a
         self.text_b = text_b
+        self.qa = qa
         self.label = label
 
-
 class BertFeatures():
-    def __init__(self, input_ids, input_mask, segment_ids, role_ids, label_id, turn_ids=None, position_ids=None, guid=None):
+    def __init__(self, input_ids, input_mask, segment_ids, role_ids, qa_ids, label_id, turn_ids=None, position_ids=None, guid=None):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
         self.role_ids = role_ids
         self.turn_ids = turn_ids
         self.position_ids = position_ids
+        self.qa_ids = qa_ids
         self.label_id = label_id
         self.guid = guid
 
@@ -60,9 +61,10 @@ class BertFeatures():
         print(self.turn_ids) if self.batch_size == 1 else print(self.turn_ids[0])
         print('*' * 20 + 'position_ids' + '*' * 20)
         print(self.position_ids) if self.batch_size == 1 else print(self.position_ids[0])
+        print('*' * 20 + 'qa_ids' + '*' * 20)
+        print(self.qa_ids) if self.batch_size == 1 else print(self.qa_ids[0])
         print('*' * 20 + 'label_id' + '*' * 20)
         print(self.label_id) if self.batch_size == 1 else print(self.label_id[0])
-
 
 class DataProvider():
     """
@@ -122,7 +124,7 @@ class DataProvider():
         """
         查看具有多少训练数据
         """
-        self.num_train_examples = line_statistics(self.args.data_dir + "/train.tsv")
+        self.num_train_examples = line_statistics(self.args.data_dir + "/train_qa.tsv")
         return self.num_train_examples
     
     def line_statistics(file_name):
@@ -145,8 +147,8 @@ class DataProvider():
             for line in f_in:
                 line_array = [s.strip() for s in line.split(config.line_sep_token) if s.strip()]
 
-                role, session, label = line_array[0], line_array[1], line_array[2]
-                bert_examples.append(BertExample(guid=None, role=role, text_a=session, label=label))
+                role, session, label, qa = line_array[0], line_array[1], line_array[2], line_array[3] # 수정: qa_turn 추가
+                bert_examples.append(BertExample(guid=None, role=role, qa=qa, text_a=session, label=label)) # 수정: qa_turn 추가
         return bert_examples
 
     def load_data_for_simcse(self, data_file):
@@ -155,12 +157,13 @@ class DataProvider():
         :param data_file:
         :return:
         """
+        print("load_data_for_simcse 수정 필요") # 해당 문장 출력 시, 해당 for문 수정 필요
         with codecs.open(data_file, 'r', encoding='utf-8') as f_in:
             bert_examples = []
             for index, line in enumerate(f_in):
                 line_array = [s.strip() for s in line.split(config.line_sep_token) if s.strip()]
 
-                role, session, label = line_array[0], line_array[1], line_array[2]
+                role, session, label, qa = line_array[0], line_array[1], line_array[2], line_array[3] # 수정: qa_turn 추가
                 samples = [context.split(config.turn_sep_token) for context in session.split(config.sample_sep_token)]
                 for i, r in enumerate(role):
                     ts = []
@@ -168,6 +171,7 @@ class DataProvider():
                         ts.append(samples[j][i])                    # 正负样本中对应role的utterance的列表
                     bert_examples.append(BertExample(guid=index,
                                                      role=r,
+                                                     qa=qa,
                                                      text_a=config.sample_sep_token.join(ts),
                                                      label=label))
         return bert_examples
@@ -186,7 +190,7 @@ class DataProvider():
         else:
             raise ValueError('Unknown backbone name: [%s]' % self.args.backbone)
 
-    def __convert_examples_worker_for_bert(self, worker_index, start_index, end_index, examples):
+    def __convert_examples_worker_for_bert(self, worker_index, start_index, end_index, examples): # 주의: qa 추가 안함
         """
         将examples转换为bert_features的工作线程
         """
@@ -310,6 +314,7 @@ class DataProvider():
             role_list = [int(r) for r in example.role.split(config.sample_sep_token)] \
                 if example.role.find(config.turn_sep_token) != -1 \
                 else [int(r) for r in example.role]
+            qa_list = example.qa.split(config.sample_sep_token) # 수정: qa 추가 [대화1의 qa 턴, ..., 대화10의 qa]
 
             sample_input_ids = []
             sample_segment_ids = []
@@ -317,13 +322,14 @@ class DataProvider():
             sample_input_mask = []
             sample_turn_ids = []
             sample_position_ids = []
+            sample_qa_ids = [] # 수정: qa 추가
 
-            for t, s in enumerate(sample_list):
+            for t, (s, qa) in enumerate(zip(sample_list, qa_list)): # 수정: qa 추가, for문을 돌며 하나의 대화에 대한 qa 턴이 들어오는 것
                 text_tokens = []
                 text_turn_ids = []
                 text_role_ids = []
                 text_segment_ids = []
-                
+                text_qa_ids = [] # 수정: qa 추가
                 
                 # config.turn_sep_token = '#'
                 text_list = s.split(config.turn_sep_token)
@@ -358,7 +364,7 @@ class DataProvider():
 
                 else:
                     context = text_list
-                    response_tokens, response_role_ids, response_turn_ids, response_segment_ids = [], [], [], []
+                    response_tokens, response_role_ids, response_turn_ids, response_segment_ids, response_qa_ids = [], [], [], [], [] # 수정: qa 추가
 
                 # limit the context length
                 # self.args.max_context_length=15
@@ -370,17 +376,19 @@ class DataProvider():
 
                     end_token = eou
 
-                    role_id, turn_id = role_list[i], len(context) - i
+                    role_id, turn_id, qa_id = role_list[i], len(context) - i, qa[i] # 수정: qa 추가
 
                     text_tokens.extend(word_list + [end_token])
                     text_role_ids.extend([role_id] * (uttr_len + 1))
                     text_turn_ids.extend([turn_id] * (uttr_len + 1))
                     text_segment_ids.extend([0] * (uttr_len + 1))
+                    text_qa_ids.extend([qa_id] * (uttr_len + 1)) # 수정: qa 추가
 
                 text_tokens.extend(response_tokens)
                 text_role_ids.extend(response_role_ids)
                 text_turn_ids.extend(response_turn_ids)
                 text_segment_ids.extend(response_segment_ids)
+                text_qa_ids.extend(response_qa_ids) # 수정: qa 추가
 
                 # self.tokenizer_config.max_seq_length=512
                 if len(text_tokens) > self.tokenizer_config.max_seq_length:
@@ -388,6 +396,7 @@ class DataProvider():
                     text_turn_ids = text_turn_ids[:self.tokenizer_config.max_seq_length]
                     text_role_ids = text_role_ids[:self.tokenizer_config.max_seq_length]
                     text_segment_ids = text_segment_ids[:self.tokenizer_config.max_seq_length]
+                    text_qa_ids = text_qa_ids[:self.tokenizer_config.max_seq_length] # 수정: qa 추가
 
                 assert (max(text_turn_ids) <= self.args.max_context_length)
 
@@ -414,6 +423,7 @@ class DataProvider():
                     text_segment_ids.append(0)
                     text_position_ids.append(0)
                     text_input_mask.append(0)
+                    text_qa_ids.append(0) # 수정: qa 추가
 
                 assert len(text_input_ids) == self.tokenizer_config.max_seq_length
                 assert len(text_turn_ids) == self.tokenizer_config.max_seq_length
@@ -421,6 +431,7 @@ class DataProvider():
                 assert len(text_segment_ids) == self.tokenizer_config.max_seq_length
                 assert len(text_position_ids) == self.tokenizer_config.max_seq_length
                 assert len(text_input_mask) == self.tokenizer_config.max_seq_length
+                assert len(text_qa_ids) == self.tokenizer_config.max_seq_length # 수정: qa 추가
 
                 sample_input_ids.append(text_input_ids)
                 sample_turn_ids.append(text_turn_ids)
@@ -428,20 +439,23 @@ class DataProvider():
                 sample_segment_ids.append(text_segment_ids)
                 sample_position_ids.append(text_position_ids)
                 sample_input_mask.append(text_input_mask)
-
+                sample_qa_ids.append(text_qa_ids) # 수정: qa 추가
+            
             label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            sample_qa_ids = [[int(item) for item in sublist] for sublist in sample_qa_ids] # 수정: 모든 요소를 숫자형으로 변환
             bert_feature = BertFeatures(input_ids=sample_input_ids,
                                         input_mask=sample_input_mask,
                                         segment_ids=sample_segment_ids,
                                         role_ids=sample_role_ids,
                                         turn_ids=sample_turn_ids,
                                         position_ids=sample_position_ids,
+                                        qa_ids = sample_qa_ids, # 수정: qa 추가
                                         label_id=label_id)
 
             features.append(bert_feature)
         return features
 
-    def __convert_examples_worker_for_todbert(self, worker_index, start_index, end_index, examples):
+    def __convert_examples_worker_for_todbert(self, worker_index, start_index, end_index, examples): # 주의: qa 추가 안함
         """
         将examples转换为bert_features的工作线程
         """
@@ -567,7 +581,7 @@ class DataProvider():
         if self.train_loader is not None:
             return self.train_loader
 
-        bert_examples = self.load_data(self.args.data_dir + "/train.tsv")
+        bert_examples = self.load_data(self.args.data_dir + "/train_qa.tsv") # 수정: qa_turn 이 추가된 데이터
         bert_features = self.convert_examples_to_features(bert_examples)
         self.num_train_steps = int(len(bert_examples) / self.args.train_batch_size * self.args.num_train_epochs)
 
@@ -582,14 +596,16 @@ class DataProvider():
         all_role_ids = torch.tensor([f.role_ids for f in bert_features], dtype=torch.long)
         all_turn_ids = torch.tensor([f.turn_ids for f in bert_features], dtype=torch.long)
         all_position_ids = torch.tensor([f.position_ids for f in bert_features], dtype=torch.long)
+        all_qa_ids = torch.tensor([f.qa_ids for f in bert_features], dtype=torch.long) # 수정: qa 추가
         all_label_ids = torch.tensor([f.label_id for f in bert_features], dtype=torch.long)
-
+        
         train_data = TensorDataset(all_input_ids,
                                    all_input_mask,
                                    all_segment_ids,
                                    all_role_ids,
                                    all_turn_ids,
                                    all_position_ids,
+                                   all_qa_ids,
                                    all_label_ids)
 
         # train_sampler = SequentialSampler(train_data)
@@ -617,9 +633,9 @@ class DataProvider():
             if mode == 'dev' and self.clustering_dev_loader is not None:
                 return self.clustering_dev_loader
 
-            bert_examples = self.load_data(self.args.data_dir + "/clustering_%s.tsv" % mode)
+            bert_examples = self.load_data(self.args.data_dir + "/clustering_%s_qa.tsv" % mode) # 수정: qa 추가한 데이터로 변경
         else:
-            bert_examples = self.load_data_for_simcse(self.args.data_dir + "/clustering_%s.tsv" % mode)
+            bert_examples = self.load_data_for_simcse(self.args.data_dir + "/clustering_%s_qa.tsv" % mode) # 수정: qa 추가한 데이터로 변경
         bert_features = self.convert_examples_to_features(bert_examples)
 
         all_input_ids = torch.tensor([f.input_ids for f in bert_features], dtype=torch.long)
@@ -628,6 +644,7 @@ class DataProvider():
         all_role_ids = torch.tensor([f.role_ids for f in bert_features], dtype=torch.long)
         all_turn_ids = torch.tensor([f.turn_ids for f in bert_features], dtype=torch.long)
         all_position_ids = torch.tensor([f.position_ids for f in bert_features], dtype=torch.long)
+        all_qa_ids = torch.tensor([f.qa_ids for f in bert_features], dtype=torch.long)
         all_label_ids = torch.tensor([f.label_id for f in bert_features], dtype=torch.long)
 
         if level == 'dialogue':
@@ -637,6 +654,7 @@ class DataProvider():
                                       all_role_ids,
                                       all_turn_ids,
                                       all_position_ids,
+                                      all_qa_ids,
                                       all_label_ids)
         else:
             all_guids = torch.tensor([f.guid for f in bert_features], dtype=torch.int)
@@ -646,6 +664,7 @@ class DataProvider():
                                       all_role_ids,
                                       all_turn_ids,
                                       all_position_ids,
+                                      all_qa_ids,
                                       all_label_ids,
                                       all_guids)
 
