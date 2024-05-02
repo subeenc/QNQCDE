@@ -90,7 +90,7 @@ class WrapperBert:
         if features is None:
             self.model.eval()
             test_loader = self.data_provider.get_clustering_test_loader(mode=mode) # 출력값 확인 필요
-
+            
             features = []
             with torch.no_grad():
                 for step, batch in enumerate(test_loader):
