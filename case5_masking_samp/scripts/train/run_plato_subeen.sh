@@ -1,7 +1,7 @@
 #!/bin/bash
 
-server=43
-gpuno="2,3"
+server=39
+gpuno="0,1,2,3"
 IFS=',' read -ra ADDR <<< "$gpuno"
 n_gpu=${#ADDR[@]}
 

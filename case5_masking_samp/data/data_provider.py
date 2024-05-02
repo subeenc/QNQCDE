@@ -34,22 +34,24 @@ def line_statistics(file_name):
 
 
 class BertExample():
-    def __init__(self, guid, role, text_a, text_b=None, label=None):
+    def __init__(self, guid, role, stage, text_a, text_b=None, label=None):
         self.guid = guid
         self.role = role
         self.text_a = text_a
         self.text_b = text_b
+        self.stage = stage
         self.label = label
 
 
 class BertFeatures():
-    def __init__(self, input_ids, input_mask, segment_ids, role_ids, label_id, turn_ids=None, position_ids=None, guid=None):
+    def __init__(self, input_ids, input_mask, segment_ids, role_ids, stage_ids, label_id, turn_ids=None, position_ids=None, guid=None):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
         self.role_ids = role_ids
         self.turn_ids = turn_ids
         self.position_ids = position_ids
+        self.stage_ids = stage_ids
         self.label_id = label_id
         self.guid = guid
 
@@ -162,8 +164,8 @@ class DataProvider():
             for line in f_in:
                 line_array = [s.strip() for s in line.split(config.line_sep_token) if s.strip()]
 
-                role, session, label = line_array[0], line_array[1], line_array[2]
-                bert_examples.append(BertExample(guid=None, role=role, text_a=session, label=label))
+                role, session, label, stage = line_array[0], line_array[1], line_array[2], line_array[3]
+                bert_examples.append(BertExample(guid=None, role=role, stage=stage, text_a=session, label=label))
         return bert_examples
 
     def load_data_for_simcse(self, data_file):
@@ -177,7 +179,7 @@ class DataProvider():
             for index, line in enumerate(f_in):
                 line_array = [s.strip() for s in line.split(config.line_sep_token) if s.strip()]
 
-                role, session, label = line_array[0], line_array[1], line_array[2]
+                role, session, label, stage = line_array[0], line_array[1], line_array[2], line_array[3]
                 samples = [context.split(config.turn_sep_token) for context in session.split(config.sample_sep_token)]
                 for i, r in enumerate(role):
                     ts = []
@@ -193,120 +195,10 @@ class DataProvider():
         """
         将examples转换为bert_features的工作线程
         """
-        if self.args.backbone in ['bert', 'roberta', 't5', 'blender', 'unsup_simcse', 'sup_simcse']:
-            return self.__convert_examples_worker_for_bert(worker_index, start_index, end_index, examples)
-        elif self.args.backbone == 'plato':
+        if self.args.backbone == 'plato':
             return self.__convert_examples_worker_for_plato(worker_index, start_index, end_index, examples)
-        elif self.args.backbone == 'todbert':
-            return self.__convert_examples_worker_for_todbert(worker_index, start_index, end_index, examples)
         else:
             raise ValueError('Unknown backbone name: [%s]' % self.args.backbone)
-
-    def __convert_examples_worker_for_bert(self, worker_index, start_index, end_index, examples):
-        """
-        将examples转换为bert_features的工作线程
-        """
-        features = []
-        self.logger.debug("converting_examples, worker_index: %s start: %s end: %s" % (worker_index, start_index, end_index))
-
-        tokenizer = self.get_tokenizer()
-        start_token, sep_token, pad_token_id = tokenizer.cls_token, tokenizer.sep_token, tokenizer.pad_token_id
-
-        for data_index, example in enumerate(examples):
-            if data_index < start_index or data_index >= end_index:
-                continue
-
-            sample_list = example.text_a.split(config.sample_sep_token)
-            role_list = [int(r) for r in example.role.split(config.sample_sep_token)] \
-                if example.role.find(config.turn_sep_token) != -1 \
-                else [int(r) for r in example.role]
-
-            sample_input_ids = []
-            sample_segment_ids = []
-            sample_role_ids = []
-            sample_input_mask = []
-            sample_turn_ids = []
-            sample_position_ids = []
-
-            for t, s in enumerate(sample_list):
-                text_tokens = []
-                text_turn_ids = []
-                text_role_ids = []
-
-                text_list = s.split(config.turn_sep_token)
-
-                # bert-token:     [cls]  token   [sep]  token
-                # roberta-token:   <s>   token   </s>   </s> token
-                # t5-token:       token  </s>    token
-                # dialogpt-token: token  token   token  token
-                # blender-token:  token  </s>    token  </s>
-                # segment:          0      0       0      0    0
-                # pos:              0      1       2      3    4
-                if self.args.backbone in ['bert', 'roberta', 'unsup_simcse', 'sup_simcse']:
-                    text_tokens.append(start_token)
-                    text_turn_ids.append(0)
-                    text_role_ids.append(role_list[0])
-
-                for i, text in enumerate(text_list):
-                    tokenized_tokens = self.tokenizer.tokenize(text)
-                    text_tokens.extend(tokenized_tokens)
-                    text_turn_ids.extend([i] * len(tokenized_tokens))
-                    text_role_ids.extend([role_list[i]] * len(tokenized_tokens))
-
-                    if self.args.use_sep_token:
-                        if i != (len(text_list) - 1):
-                            text_tokens.append(sep_token)
-                            text_turn_ids.append(i)
-                            text_role_ids.append(role_list[i])
-                            if self.args.backbone in ['roberta']:
-                                text_tokens.append(sep_token)
-                                text_role_ids.append(role_list[i])
-
-                if self.args.backbone in ['t5', 'blender']:
-                    text_tokens.append(sep_token)
-                    text_turn_ids.append(i)
-                    text_role_ids.append(role_list[i])
-
-                text_tokens = text_tokens[:self.tokenizer_config.max_seq_length]
-                text_turn_ids = text_turn_ids[:self.tokenizer_config.max_seq_length]
-                text_role_ids = text_role_ids[:self.tokenizer_config.max_seq_length]
-
-                text_input_ids = self.tokenizer.convert_tokens_to_ids(text_tokens)
-
-                text_input_ids += [pad_token_id] * (self.tokenizer_config.max_seq_length - len(text_tokens))
-                text_input_mask = [1] * len(text_tokens) + [0] * (self.tokenizer_config.max_seq_length - len(text_tokens))
-                text_segment_ids = [0] * self.tokenizer_config.max_seq_length
-                text_position_ids = list(range(len(text_tokens))) + [0] * (self.tokenizer_config.max_seq_length - len(text_tokens))
-                text_turn_ids += [0] * (self.tokenizer_config.max_seq_length - len(text_tokens))
-                text_role_ids += [0] * (self.tokenizer_config.max_seq_length - len(text_tokens))
-
-                assert len(text_input_ids) == self.tokenizer_config.max_seq_length
-                assert len(text_input_mask) == self.tokenizer_config.max_seq_length
-                assert len(text_segment_ids) == self.tokenizer_config.max_seq_length
-                assert len(text_position_ids) == self.tokenizer_config.max_seq_length
-                assert len(text_turn_ids) == self.tokenizer_config.max_seq_length
-                assert len(text_role_ids) == self.tokenizer_config.max_seq_length
-
-                sample_input_ids.append(text_input_ids)
-                sample_turn_ids.append(text_turn_ids)
-                sample_role_ids.append(text_role_ids)
-                sample_segment_ids.append(text_segment_ids)
-                sample_position_ids.append(text_position_ids)
-                sample_input_mask.append(text_input_mask)
-
-            n_neg = 9
-            label_id = [1] + [0] * n_neg
-            bert_feature = BertFeatures(input_ids=sample_input_ids,
-                                        input_mask=sample_input_mask,
-                                        segment_ids=sample_segment_ids,
-                                        role_ids=sample_role_ids,
-                                        turn_ids=sample_turn_ids,
-                                        position_ids=sample_position_ids,
-                                        label_id=label_id,
-                                        guid=[example.guid] * (1 + n_neg))
-
-            features.append(bert_feature)
-        return features
 
     def __convert_examples_worker_for_plato(self, worker_index, start_index, end_index, examples):
         """
@@ -326,6 +218,11 @@ class DataProvider():
             role_list = [int(r) for r in example.role.split(config.sample_sep_token)] \
                 if example.role.find(config.turn_sep_token) != -1 \
                 else [int(r) for r in example.role]
+            stage_list = [int(r) for r in example.stage.split(config.sample_sep_token)] \
+                if example.role.find(config.turn_sep_token) != -1 \
+                else [int(r) for r in example.stage]
+            # print(role_list)
+            # print(stage_list)
 
             sample_input_ids = []
             sample_segment_ids = []
@@ -333,12 +230,14 @@ class DataProvider():
             sample_input_mask = []
             sample_turn_ids = []
             sample_position_ids = []
+            sample_stage_ids = []
 
             for t, s in enumerate(sample_list):
                 text_tokens = []
                 text_turn_ids = []
                 text_role_ids = []
                 text_segment_ids = []
+                text_stage_ids = []
                 
                 # config.turn_sep_token = '#'
                 text_list = s.split(config.turn_sep_token)
@@ -365,10 +264,11 @@ class DataProvider():
                     response_role_ids = [role_id] * (1 + uttr_len + 1)
                     response_turn_ids = [turn_id] * (1 + uttr_len + 1)
                     response_segment_ids = [0] * (1 + uttr_len + 1)                   # not use
+                    response_stage_ids = [stage_id] * (1 + uttr_len + 1)
 
                 else:
                     context = text_list
-                    response_tokens, response_role_ids, response_turn_ids, response_segment_ids = [], [], [], []
+                    response_tokens, response_role_ids, response_turn_ids, response_segment_ids, response_stage_ids = [], [], [], [], []
 
                 # limit the context length
                 context = context[-self.args.max_context_length:]
@@ -378,24 +278,27 @@ class DataProvider():
 
                     uttr_len = len(word_list)
                     end_token = eou
-
-                    role_id, turn_id = role_list[i], len(context) - i
+                    # print(i)
+                    role_id, stage_id, turn_id = role_list[i], stage_list[i], len(context) - i
 
                     text_tokens.extend(word_list + [end_token])
                     text_role_ids.extend([role_id] * (uttr_len + 1))
                     text_turn_ids.extend([turn_id] * (uttr_len + 1))
                     text_segment_ids.extend([0] * (uttr_len + 1))
+                    text_stage_ids.extend([stage_id] * (uttr_len + 1))  # stage 추가
 
                 text_tokens.extend(response_tokens)
                 text_role_ids.extend(response_role_ids)
                 text_turn_ids.extend(response_turn_ids)
                 text_segment_ids.extend(response_segment_ids)
+                text_stage_ids.extend(response_stage_ids)
 
                 if len(text_tokens) > self.tokenizer_config.max_seq_length:
                     text_tokens = text_tokens[:self.tokenizer_config.max_seq_length]
                     text_turn_ids = text_turn_ids[:self.tokenizer_config.max_seq_length]
                     text_role_ids = text_role_ids[:self.tokenizer_config.max_seq_length]
                     text_segment_ids = text_segment_ids[:self.tokenizer_config.max_seq_length]
+                    text_stage_ids = text_stage_ids[:self.tokenizer_config.max_seq_length]
 
                 assert (max(text_turn_ids) <= self.args.max_context_length)
 
@@ -422,6 +325,7 @@ class DataProvider():
                     text_segment_ids.append(0)
                     text_position_ids.append(0)
                     text_input_mask.append(0)
+                    text_stage_ids.append(0)
 
                 assert len(text_input_ids) == self.tokenizer_config.max_seq_length
                 assert len(text_turn_ids) == self.tokenizer_config.max_seq_length
@@ -429,6 +333,7 @@ class DataProvider():
                 assert len(text_segment_ids) == self.tokenizer_config.max_seq_length
                 assert len(text_position_ids) == self.tokenizer_config.max_seq_length
                 assert len(text_input_mask) == self.tokenizer_config.max_seq_length
+                assert len(text_stage_ids) == self.tokenizer_config.max_seq_length
                     
                 sample_input_ids.append(text_input_ids)
                 sample_turn_ids.append(text_turn_ids)
@@ -436,20 +341,23 @@ class DataProvider():
                 sample_segment_ids.append(text_segment_ids)
                 sample_position_ids.append(text_position_ids)
                 sample_input_mask.append(text_input_mask)
+                sample_stage_ids.append(text_stage_ids)
                 
                 if not t:
                     # self.logger.info("*****************positive sample 생성 전*********************")
-                    pos_input_ids, pos_turn_ids, pos_role_ids, pos_segment_ids, pos_position_ids, pos_input_mask = self.create_positive_sample(context, role_list, eou)
+                    pos_input_ids, pos_turn_ids, pos_role_ids, pos_segment_ids, pos_position_ids, pos_input_mask, pos_stage_ids = self.create_positive_sample(context, role_list, stage_list, eou)
                     sample_input_ids.append(pos_input_ids)
                     sample_turn_ids.append(pos_turn_ids)
                     sample_role_ids.append(pos_role_ids)
                     sample_segment_ids.append(pos_segment_ids)
                     sample_position_ids.append(pos_position_ids)
                     sample_input_mask.append(pos_input_mask)
+                    sample_stage_ids.append(pos_stage_ids)
                     # print("==================positive 샘플================")
                     # print(len(sample_input_ids))
                     # print(sample_input_ids[:2])
             
+            sample_stage_ids = [[int(item) for item in sublist] for sublist in sample_stage_ids] # 수정: 모든 요소를 숫자형으로 변환
             label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             bert_feature = BertFeatures(input_ids=sample_input_ids,
                                         input_mask=sample_input_mask,
@@ -457,6 +365,7 @@ class DataProvider():
                                         role_ids=sample_role_ids,
                                         turn_ids=sample_turn_ids,
                                         position_ids=sample_position_ids,
+                                        stage_ids=sample_stage_ids,
                                         label_id=label_id)
 
             features.append(bert_feature)
@@ -546,11 +455,12 @@ class DataProvider():
         
         
     #============================== Create Positive Sample ==============================#
-    def create_positive_sample(self, context, role_list, eou):
+    def create_positive_sample(self, context, role_list, stage_list, eou):
         text_tokens = []
         text_turn_ids = []
         text_role_ids = []
         text_segment_ids = []
+        text_stage_ids = []
         
         for i, text in enumerate(context):  # context = text_list -> 전체 turn list
             word_list = self.tokenizer.tokenize(text)  # 각 turn에 대한 tokens
@@ -558,19 +468,20 @@ class DataProvider():
             
             uttr_len = len(word_list)
             end_token = eou
-
-            role_id, turn_id = role_list[i], len(context) - i
+            role_id, stage_id, turn_id = role_list[i], stage_list[i], len(context) - i
 
             text_tokens.extend(pos_token + [end_token])
             text_role_ids.extend([role_id] * (uttr_len + 1))
             text_turn_ids.extend([turn_id] * (uttr_len + 1))
             text_segment_ids.extend([0] * (uttr_len + 1))
+            text_stage_ids.extend([stage_id] * (uttr_len + 1))  # stage 추가
 
         if len(text_tokens) > self.tokenizer_config.max_seq_length:
             text_tokens = text_tokens[:self.tokenizer_config.max_seq_length]
             text_turn_ids = text_turn_ids[:self.tokenizer_config.max_seq_length]
             text_role_ids = text_role_ids[:self.tokenizer_config.max_seq_length]
             text_segment_ids = text_segment_ids[:self.tokenizer_config.max_seq_length]
+            text_stage_ids = text_stage_ids[:self.tokenizer_config.max_seq_length]
 
         assert (max(text_turn_ids) <= self.args.max_context_length)
 
@@ -597,6 +508,7 @@ class DataProvider():
             text_segment_ids.append(0)
             text_position_ids.append(0)
             text_input_mask.append(0)
+            text_stage_ids.append(0)
 
         assert len(text_input_ids) == self.tokenizer_config.max_seq_length
         assert len(text_turn_ids) == self.tokenizer_config.max_seq_length
@@ -604,101 +516,9 @@ class DataProvider():
         assert len(text_segment_ids) == self.tokenizer_config.max_seq_length
         assert len(text_position_ids) == self.tokenizer_config.max_seq_length
         assert len(text_input_mask) == self.tokenizer_config.max_seq_length
+        assert len(text_stage_ids) == self.tokenizer_config.max_seq_length
         
-        return text_input_ids, text_turn_ids, text_role_ids, text_segment_ids, text_position_ids, text_input_mask
-
-    def __convert_examples_worker_for_todbert(self, worker_index, start_index, end_index, examples):
-        """
-        将examples转换为bert_features的工作线程
-        """
-        features = []
-        self.logger.debug("converting_examples, worker_index: %s start: %s end: %s" % (worker_index, start_index, end_index))
-
-        tokenizer = self.get_tokenizer()
-        start_token, sep_token, pad_token_id = tokenizer.cls_token, tokenizer.sep_token, tokenizer.pad_token_id
-
-        for data_index, example in enumerate(examples):
-            if data_index < start_index or data_index >= end_index:
-                continue
-
-            sample_list = example.text_a.split(config.sample_sep_token)
-            role_list = [int(r) for r in example.role.split(config.sample_sep_token)] \
-                if example.role.find(config.turn_sep_token) != -1 \
-                else [int(r) for r in example.role]
-
-            sample_input_ids = []
-            sample_segment_ids = []
-            sample_role_ids = []
-            sample_input_mask = []
-            sample_turn_ids = []
-            sample_position_ids = []
-
-            for t, s in enumerate(sample_list):
-                text_tokens = []
-                text_turn_ids = []
-                text_role_ids = []
-
-                text_list = s.split(config.turn_sep_token)
-
-                # token:    [CLS]  [SYS]  token  [USR]  token
-                # segment:    0      0      0      0      0
-                # pos:        0      1      2      3      4
-                text_tokens.append(start_token)
-                text_turn_ids.append(0)
-                text_role_ids.append(role_list[0])
-
-                for i, text in enumerate(text_list):
-                    text_tokens.append('[sys]') if role_list[i] == 0 else text_tokens.append('[usr]')
-                    text_turn_ids.append(i)
-                    text_role_ids.append(role_list[i])
-
-                    tokenized_tokens = self.tokenizer.tokenize(text)
-                    text_tokens.extend(tokenized_tokens)
-                    text_turn_ids.extend([i] * len(tokenized_tokens))
-                    text_role_ids.extend([role_list[i]] * len(tokenized_tokens))
-
-                text_tokens.append(sep_token)
-                text_turn_ids.append(i)
-                text_role_ids.append(role_list[i])
-
-                text_tokens = text_tokens[:self.tokenizer_config.max_seq_length]
-                text_turn_ids = text_turn_ids[:self.tokenizer_config.max_seq_length]
-                text_role_ids = text_role_ids[:self.tokenizer_config.max_seq_length]
-
-                text_input_ids = self.tokenizer.convert_tokens_to_ids(text_tokens)
-
-                text_input_ids += [pad_token_id] * (self.tokenizer_config.max_seq_length - len(text_tokens))
-                text_input_mask = [1] * len(text_tokens) + [0] * (self.tokenizer_config.max_seq_length - len(text_tokens))
-                text_segment_ids = [0] * self.tokenizer_config.max_seq_length
-                text_position_ids = list(range(len(text_tokens))) + [0] * (self.tokenizer_config.max_seq_length - len(text_tokens))
-                text_turn_ids += [0] * (self.tokenizer_config.max_seq_length - len(text_tokens))
-                text_role_ids += [0] * (self.tokenizer_config.max_seq_length - len(text_tokens))
-
-                assert len(text_input_ids) == self.tokenizer_config.max_seq_length
-                assert len(text_input_mask) == self.tokenizer_config.max_seq_length
-                assert len(text_segment_ids) == self.tokenizer_config.max_seq_length
-                assert len(text_position_ids) == self.tokenizer_config.max_seq_length
-                assert len(text_turn_ids) == self.tokenizer_config.max_seq_length
-                assert len(text_role_ids) == self.tokenizer_config.max_seq_length
-
-                sample_input_ids.append(text_input_ids)
-                sample_turn_ids.append(text_turn_ids)
-                sample_role_ids.append(text_role_ids)
-                sample_segment_ids.append(text_segment_ids)
-                sample_position_ids.append(text_position_ids)
-                sample_input_mask.append(text_input_mask)
-
-            label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-            bert_feature = BertFeatures(input_ids=sample_input_ids,
-                                        input_mask=sample_input_mask,
-                                        segment_ids=sample_segment_ids,
-                                        role_ids=sample_role_ids,
-                                        turn_ids=sample_turn_ids,
-                                        position_ids=sample_position_ids,
-                                        label_id=label_id)
-
-            features.append(bert_feature)
-        return features
+        return text_input_ids, text_turn_ids, text_role_ids, text_segment_ids, text_position_ids, text_input_mask, text_stage_ids
 
     def worker_init(self):
         """ 워커가 시작될 때 CUDA 디바이스 초기화 """
@@ -755,6 +575,7 @@ class DataProvider():
         all_role_ids = torch.tensor([f.role_ids for f in bert_features], dtype=torch.long)
         all_turn_ids = torch.tensor([f.turn_ids for f in bert_features], dtype=torch.long)
         all_position_ids = torch.tensor([f.position_ids for f in bert_features], dtype=torch.long)
+        all_stage_ids = torch.tensor([f.stage_ids for f in bert_features], dtype=torch.long)
         all_label_ids = torch.tensor([f.label_id for f in bert_features], dtype=torch.long)
         # print("===========all_input_ids============")
         # print(all_input_ids.shape)
@@ -765,6 +586,7 @@ class DataProvider():
                                    all_role_ids,
                                    all_turn_ids,
                                    all_position_ids,
+                                   all_stage_ids,
                                    all_label_ids)
     
 
@@ -809,6 +631,7 @@ class DataProvider():
         all_role_ids = torch.tensor([f.role_ids for f in bert_features], dtype=torch.long)
         all_turn_ids = torch.tensor([f.turn_ids for f in bert_features], dtype=torch.long)
         all_position_ids = torch.tensor([f.position_ids for f in bert_features], dtype=torch.long)
+        all_stage_ids = torch.tensor([f.stage_ids for f in bert_features], dtype=torch.long)
         all_label_ids = torch.tensor([f.label_id for f in bert_features], dtype=torch.long)
 
         if level == 'dialogue':
@@ -818,6 +641,7 @@ class DataProvider():
                                       all_role_ids,
                                       all_turn_ids,
                                       all_position_ids,
+                                      all_stage_ids,
                                       all_label_ids)
         else:
             all_guids = torch.tensor([f.guid for f in bert_features], dtype=torch.int)
@@ -827,6 +651,7 @@ class DataProvider():
                                       all_role_ids,
                                       all_turn_ids,
                                       all_position_ids,
+                                      all_stage_ids,
                                       all_label_ids,
                                       all_guids)
 
