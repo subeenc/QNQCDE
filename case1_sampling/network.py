@@ -320,7 +320,7 @@ class Dial2vec(nn.Module):
             turn_idx_ls, most_frequent_speaker = self.find_most_frequent_speaker(pr[i])
             # anchor 생성
             valid_indices, anchor_turn_idx, anchor, pooled_anchor, window = self.set_anchor(turn_idx_ls, pos_emb_ls, most_frequent_speaker)
-            # postive pair 생성
+            # positive pair 생성
             pooled_pos = [tensor.mean(dim=0, keepdim=True) for tensor in pos_emb_ls]
             pooled_pos = torch.stack(pooled_pos, dim=0).squeeze()
             pos_samples = self.embeddingsampler.run(pooled_pos).to(pooled_anchor.device)
@@ -406,9 +406,11 @@ class Dial2vec(nn.Module):
         pooled_output = pooled_output.view(-1, self.sample_nums, self.config.hidden_size)
         output = self_output[:, 0, :]
         
+        # 단순 샘플링일 경우 아래 코드 주석 제거
         # our_loss = self.train_loss_with_sampling(positive_roleid, negative_roleid,
         #                                          positive_embeddings, negative_embeddings).to(output.device) # self.args.window
-
+        
+        # coreset일 경우 아래 코드 주석 제거
         our_loss = self.train_loss_with_coreset_sampling(positive_roleid, negative_roleid,
                                                  positive_embeddings, negative_embeddings).to(output.device)
         output_dict = {'loss': our_loss,
