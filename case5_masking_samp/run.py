@@ -111,7 +111,7 @@ class WrapperBert:
         
         test_path = os.path.join(self.args.data_dir, "clustering_%s.tsv" % mode)
         with codecs.open(test_path, "r", "utf-8") as f:
-            labels = [int(line.strip('\n').split("\t")[-1]) for line in f]
+            labels = [int(line.strip('\n').split("\t")[-2]) for line in f]  # stage 추가로 idx -2로 변경
         # print('============= labels:==============')
         # print(len(labels))
 

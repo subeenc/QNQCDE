@@ -246,9 +246,8 @@ class Dial2vec(nn.Module):
         turn_loss = self.cal_turn_loss(anchor_roleid, positive_roleid, negative_roleid,
                                        anchor_embedding, positive_embedding, negative_embeddings, labels)  
 
-        
-        # print(stage_ids)
         # stage representation
+        # print(stage_ids.shape)  # torch.Size([110, 512])
         one_mask = torch.ones_like(stage_ids)
         zero_mask = torch.zeros_like(stage_ids)
         
@@ -276,7 +275,9 @@ class Dial2vec(nn.Module):
         # print(stage1_self_output.shape)  # torch.Size([110, 512, 768])
         # print(stage2_self_output[0,40,:])
         
-        # print((stage2_self_output.transpose(-1, -2)+stage3_self_output.transpose(-1, -2)+stage4_self_output.transpose(-1, -2))[0,:,0])
+        # print("=====================others")  # torch.Size([110, 768, 512])
+        # print((stage2_self_output.transpose(-1, -2)+stage3_self_output.transpose(-1, -2)+stage4_self_output.transpose(-1, -2)).shape)
+        # print((stage2_self_output.transpose(-1, -2)+stage3_self_output.transpose(-1, -2)+stage4_self_output.transpose(-1, -2))[0,:,:])
         # print("==========================matmul")
         # print(torch.matmul(stage1_self_output[0, 20:50, :], stage2_self_output[0, 20:50, :].transpose(-1, -2)))
         w1 = torch.matmul(stage1_self_output, (stage2_self_output.transpose(-1, -2)+stage3_self_output.transpose(-1, -2)+stage4_self_output.transpose(-1, -2)))
@@ -284,6 +285,8 @@ class Dial2vec(nn.Module):
         w3 = torch.matmul(stage3_self_output, (stage1_self_output.transpose(-1, -2)+stage2_self_output.transpose(-1, -2)+stage4_self_output.transpose(-1, -2)))
         w4 = torch.matmul(stage4_self_output, (stage1_self_output.transpose(-1, -2)+stage2_self_output.transpose(-1, -2)+stage3_self_output.transpose(-1, -2)))
         # print(w1.shape) # torch.Size([110, 512, 512])
+        w = w1+w2+w3+w4
+        # print(w[0][50:60,:40])
         
         # 특정 범위 내 시퀀스 요소만 상호작용 허용
         # turn 개수와 같으므로 동일하게 적용
@@ -297,30 +300,48 @@ class Dial2vec(nn.Module):
             filtered_w2 = w2 * view_range_mask
             filtered_w3 = w3 * view_range_mask
             filtered_w4 = w4 * view_range_mask
+        filtered_w = filtered_w1+filtered_w2+filtered_w3+filtered_w4
         # print(filtered_w1.shape)  # torch.Size([110, 512, 512])
-        
+        # print(filtered_w[0][50:60,:40])
+
+        # 전체 stage cross_output
+        all_stage_cross_output =  torch.matmul(filtered_w, self_output)   # torch.Size([110, 512, 768])
+        all_stage_cross_output = all_stage_cross_output.view(-1, self.sample_nums, self.args.max_seq_length, self.config.hidden_size)  # torch.Size([10, 11, 512, 768])
+        stage_pooled_output = torch.mean(all_stage_cross_output, dim=2)  # torch.Size([10, 11, 768])
+        # print(stage_pooled_output.shape)
+
+        # stage 별 cross_output
+        # print(filtered_w1.shape)  # torch.Size([110, 512, 512])
+        # print(stage1_self_output.shape)  # torch.Size([110, 512, 768])
         stage1_cross_output = torch.matmul(filtered_w1, stage1_self_output)
         stage2_cross_output = torch.matmul(filtered_w2, stage2_self_output)
         stage3_cross_output = torch.matmul(filtered_w3, stage3_self_output)
         stage4_cross_output = torch.matmul(filtered_w4, stage4_self_output)
-        # print(stage1_cross_output.shape)  # torch.Size([110, 512, 768])
+        # # print(stage1_cross_output.shape)  # torch.Size([110, 512, 768])
         
-        stage1_cross_output = self.avg(stage1_cross_output, stage1_attn_mask)
-        stage2_cross_output = self.avg(stage2_cross_output, stage2_attn_mask)
-        stage3_cross_output = self.avg(stage3_cross_output, stage3_attn_mask)
-        stage4_cross_output = self.avg(stage4_cross_output, stage4_attn_mask)
-        # print(stage1_cross_output.shape)  # torch.Size([110, 768])
+        stage_cross_output = (stage1_cross_output+stage2_cross_output+stage3_cross_output+stage4_cross_output).view(-1, self.sample_nums, self.args.max_seq_length, self.config.hidden_size)
         
-        stage1_cross_output = stage1_cross_output.view(-1, self.sample_nums, self.config.hidden_size)
-        stage2_cross_output = stage2_cross_output.view(-1, self.sample_nums, self.config.hidden_size)
-        stage3_cross_output = stage3_cross_output.view(-1, self.sample_nums, self.config.hidden_size)
-        stage4_cross_output = stage4_cross_output.view(-1, self.sample_nums, self.config.hidden_size)
-        # print(stage1_cross_output.shape)  # torch.Size([10, 11, 768])
+        equal_flag = torch.allclose(all_stage_cross_output, stage_cross_output, atol=1e-4, rtol=1e-4)
+        print("Are the tensors close?:", equal_flag)
         
-        all_stages = torch.stack([stage1_cross_output, stage2_cross_output, stage3_cross_output, stage4_cross_output], dim=0)
-        # print(all_stages.shape)  # torch.Size([4, 10, 11, 768])
-        stage_pooled_output = torch.mean(all_stages, dim=0)
+        # stage1_cross_output = self.avg(stage1_cross_output, stage1_attn_mask)
+        # stage2_cross_output = self.avg(stage2_cross_output, stage2_attn_mask)
+        # stage3_cross_output = self.avg(stage3_cross_output, stage3_attn_mask)
+        # stage4_cross_output = self.avg(stage4_cross_output, stage4_attn_mask)
+        # # print(stage1_cross_output.shape)  # torch.Size([110, 768])
+        
+        # stage1_cross_output = stage1_cross_output.view(-1, self.sample_nums, self.config.hidden_size)
+        # stage2_cross_output = stage2_cross_output.view(-1, self.sample_nums, self.config.hidden_size)
+        # stage3_cross_output = stage3_cross_output.view(-1, self.sample_nums, self.config.hidden_size)
+        # stage4_cross_output = stage4_cross_output.view(-1, self.sample_nums, self.config.hidden_size)
+        # # print(stage1_cross_output.shape)  # torch.Size([10, 11, 768])
+        
+        # all_stages = torch.stack([stage1_cross_output, stage2_cross_output, stage3_cross_output, stage4_cross_output], dim=0)
+        # # print(all_stages.shape)  # torch.Size([4, 10, 11, 768])
+        # stage_pooled_output = torch.mean(all_stages, dim=0)
         # print(stage_pooled_output.shape)  # torch.Size([10, 11, 768])
+        # print("=============stage_pooled_output")
+        # print(stage_pooled_output[0,0,:])
         
 
         
@@ -359,13 +380,16 @@ class Dial2vec(nn.Module):
             stage_logits.append(cos_output)
 
         stage_logits = torch.stack(stage_logits, dim=1)
+        # print("============logit")
+        # print(stage_logits)
+        # print(labels)
         stage_loss = self.calc_loss(stage_logits, labels)
         
         
         # print("=====================Our Loss===================")
         # print(dial_loss, turn_loss, 0.8*dial_loss + 0.2*turn_loss) # turn_loss가 dial_loss보다 0.01~0.03 정도 큼
         # print(dial_loss, turn_loss, stage_loss, 0.3*dial_loss + 0.4*turn_loss + 0.3*stage_loss)
-        output_dict = {'loss': 0.3*dial_loss + 0.4*turn_loss + 0.3*stage_loss,
+        output_dict = {'loss': 0*dial_loss + 0.6*turn_loss + 0.4*stage_loss,
                        'final_feature': output 
                        }
         return output_dict
