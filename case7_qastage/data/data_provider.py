@@ -124,7 +124,7 @@ class DataProvider():
         """
         查看具有多少训练数据
         """
-        self.num_train_examples = line_statistics(self.args.data_dir + "/train_qa.tsv")
+        self.num_train_examples = line_statistics(self.args.data_dir + "/train_oriqa.tsv")
         return self.num_train_examples
     
     def line_statistics(file_name):
@@ -282,7 +282,7 @@ class DataProvider():
                 sample_position_ids.append(text_position_ids)
                 sample_input_mask.append(text_input_mask)
 
-            n_neg = 9
+            n_neg = 17 # 수정: 샘플 갯수에 따라 수정 필요
             label_id = [1] + [0] * n_neg
             bert_feature = BertFeatures(input_ids=sample_input_ids,
                                         input_mask=sample_input_mask,
@@ -441,7 +441,7 @@ class DataProvider():
                 sample_input_mask.append(text_input_mask)
                 sample_qa_ids.append(text_qa_ids) # 수정: qa 추가
             
-            label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             sample_qa_ids = [[int(item) for item in sublist] for sublist in sample_qa_ids] # 수정: 모든 요소를 숫자형으로 변환
             bert_feature = BertFeatures(input_ids=sample_input_ids,
                                         input_mask=sample_input_mask,
@@ -581,7 +581,7 @@ class DataProvider():
         if self.train_loader is not None:
             return self.train_loader
 
-        bert_examples = self.load_data(self.args.data_dir + "/train_qa.tsv") # 수정: qa_turn 이 추가된 데이터
+        bert_examples = self.load_data(self.args.data_dir + "/train_oriqa.tsv") # 수정: qa_turn 이 추가된 데이터
         bert_features = self.convert_examples_to_features(bert_examples)
         self.num_train_steps = int(len(bert_examples) / self.args.train_batch_size * self.args.num_train_epochs)
 
@@ -633,9 +633,9 @@ class DataProvider():
             if mode == 'dev' and self.clustering_dev_loader is not None:
                 return self.clustering_dev_loader
 
-            bert_examples = self.load_data(self.args.data_dir + "/clustering_%s_qa.tsv" % mode) # 수정: qa 추가한 데이터로 변경
+            bert_examples = self.load_data(self.args.data_dir + "/clustering_%s_oriqa.tsv" % mode) # 수정: qa 추가한 데이터로 변경
         else:
-            bert_examples = self.load_data_for_simcse(self.args.data_dir + "/clustering_%s_qa.tsv" % mode) # 수정: qa 추가한 데이터로 변경
+            bert_examples = self.load_data_for_simcse(self.args.data_dir + "/clustering_%s_oriqa.tsv" % mode) # 수정: qa 추가한 데이터로 변경
         bert_features = self.convert_examples_to_features(bert_examples)
 
         all_input_ids = torch.tensor([f.input_ids for f in bert_features], dtype=torch.long)
