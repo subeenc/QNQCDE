@@ -57,7 +57,7 @@ class Dial2vec(nn.Module):
 
         self.dropout = nn.Dropout(self.config.hidden_dropout_prob)
         self.labels_data = None
-        self.sample_nums = 18 # 수정: 샘플 개수에 따라 수정
+        self.sample_nums = 9 # 수정: 데이터에 따라 수정 필요
         self.log_softmax = nn.LogSoftmax(dim=-1)
         self.avg = BertAVG(eps=1e-6)
         self.logger = args.logger
@@ -109,9 +109,10 @@ class Dial2vec(nn.Module):
             filtered_a_w = a_w * view_range_mask
             filtered_n_w = n_w * view_range_mask
         
-        q_cross_output = torch.matmul(filtered_q_w, q_self_output)
-        a_cross_output = torch.matmul(filtered_a_w, a_self_output)
-        n_cross_output = torch.matmul(filtered_n_w, n_self_output)
+        filtered_w = filtered_q_w + filtered_a_w + filtered_n_w
+        q_cross_output = torch.matmul(filtered_w, q_self_output)
+        a_cross_output = torch.matmul(filtered_w, a_self_output)
+        n_cross_output = torch.matmul(filtered_w, n_self_output)
         
         q_self_output = self.avg(q_self_output, q_attention_mask) # torch.Size([100, 768])
         q_cross_output = self.avg(q_cross_output, a_attention_mask + n_attention_mask)
@@ -237,9 +238,11 @@ class Dial2vec(nn.Module):
         计算cosine相似度
         """
         cos = torch.cosine_similarity(x, y, dim=1)
-        # 수정: 코사인 유사도가 1인 경우는 0으로 (nan 값으로도 해보기)
-        mask = (cos == 1)
-        cos[mask] = 0
+        # 수정: 코사인 유사도가 1인 경우는 0으로
+        # mask = (cos == 1)
+        # cos[mask] = 0
+        # 수정: 코사인 유사도가 1인 경우는 nan으로 
+        cos[(cos == 1)] = float('nan')
         cos = cos / self.args.temperature   # cos = cos / 2.0
         return cos
 
@@ -248,7 +251,7 @@ class Dial2vec(nn.Module):
         计算损失函数
         """
         # pred = pred.float()
-        loss = -torch.mean(self.log_softmax(pred) * labels)
+        loss = -torch.nanmean(self.log_softmax(pred) * labels) # 수정: nan값 제외 시, torch.nanmean
         return loss
 
     def get_result(self):

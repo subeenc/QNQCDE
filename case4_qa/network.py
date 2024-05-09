@@ -98,9 +98,11 @@ class Dial2vec(nn.Module):
         # 필요 시, qa_ids=2, 3 에 대한 조건 추가할 것
         one_mask = torch.ones_like(qa_ids) # 모든 요소 1로 초기화
         zero_mask = torch.zeros_like(qa_ids) # 모든 요소 0으로 초기화
-        q_mask = torch.where((qa_ids == 1) | (qa_ids == 2), one_mask, zero_mask) # qa_ids가 1, 2인 경우에 1, 그렇지 않으면 0 
-        a_mask = torch.where((qa_ids == 0) | (qa_ids == 2), one_mask, zero_mask) # qa_ids가 0, 2인 경우에 1, 그렇지 않으면 0 
-
+        # q_mask = torch.where((qa_ids == 1) | (qa_ids == 2), one_mask, zero_mask) # qa_ids가 1, 2인 경우에 1, 그렇지 않으면 0 
+        # a_mask = torch.where((qa_ids == 0) | (qa_ids == 2), one_mask, zero_mask) # qa_ids가 0, 2인 경우에 1, 그렇지 않으면 0 
+        q_mask = torch.where((qa_ids == 1) | (qa_ids == 2), one_mask, zero_mask) # 질문이 포함된 턴
+        a_mask = torch.where((qa_ids == 0) | (qa_ids == 3), one_mask, zero_mask) # 질문이 포함되지 않은 턴
+        
         sep_token_id = self.sep_token_id if self.args.use_sep_token else -1
 
         q_attention_mask = (attention_mask * q_mask)

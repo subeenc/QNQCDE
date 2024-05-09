@@ -109,9 +109,9 @@ class WrapperBert:
         # print("==============cluster data input: features==============")
         # print(features.shape)  # torch.Size([661, 768])
         
-        test_path = os.path.join(self.args.data_dir, "clustering_%s.tsv" % mode)
+        test_path = os.path.join(self.args.data_dir, "clustering_%s_qa.tsv" % mode)
         with codecs.open(test_path, "r", "utf-8") as f:
-            labels = [int(line.strip('\n').split("\t")[-1]) for line in f]
+            labels = [int(line.strip('\n').split("\t")[-2]) for line in f]
         # print('============= labels:==============')
         # print(len(labels))
 
