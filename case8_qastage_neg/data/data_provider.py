@@ -26,7 +26,7 @@ def line_statistics(file_name):
 
 
 class BertExample():
-    def __init__(self, guid, role, qa, text_a, text_b=None, label=None):
+    def __init__(self, guid, role, text_a, qa, text_b=None, label=None):
         self.guid = guid
         self.role = role
         self.text_a = text_a
@@ -124,7 +124,7 @@ class DataProvider():
         """
         查看具有多少训练数据
         """
-        self.num_train_examples = line_statistics(self.args.data_dir + "/train_qaneg.tsv")
+        self.num_train_examples = line_statistics(self.args.data_dir + "/train_0510_qa_st.tsv")
         return self.num_train_examples
     
     def line_statistics(file_name):
@@ -317,6 +317,7 @@ class DataProvider():
             qa_list = [int(q) for q in example.qa.split(config.sample_sep_token)] \
                 if example.qa.find(config.turn_sep_token) != -1 \
                 else [int(q) for q in example.qa]
+            # print(len(role_list), len(qa_list))
 
             sample_input_ids = []
             sample_segment_ids = []
@@ -378,7 +379,6 @@ class DataProvider():
                     uttr_len = len(word_list)
 
                     end_token = eou
-
                     role_id, turn_id, qa_id = role_list[i], len(context) - i, qa_list[i] # 수정: qa 추가
 
                     text_tokens.extend(word_list + [end_token])
@@ -445,6 +445,7 @@ class DataProvider():
                 sample_qa_ids.append(text_qa_ids) # 수정: qa 추가
             
             label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0]  # 수정: 데이터에 따라 수정 필요
+            sample_role_ids = [[int(item) for item in sublist] for sublist in sample_role_ids] # 수정: 모든 요소를 숫자형으로 변환
             sample_qa_ids = [[int(item) for item in sublist] for sublist in sample_qa_ids] # 수정: 모든 요소를 숫자형으로 변환
             bert_feature = BertFeatures(input_ids=sample_input_ids,
                                         input_mask=sample_input_mask,
@@ -584,7 +585,7 @@ class DataProvider():
         if self.train_loader is not None:
             return self.train_loader
 
-        bert_examples = self.load_data(self.args.data_dir + "/train_qaneg.tsv") # 수정: qa_turn 이 추가된 데이터
+        bert_examples = self.load_data(self.args.data_dir + "/train_0510_qa_st.tsv") # 수정: qa_turn 이 추가된 데이터
         bert_features = self.convert_examples_to_features(bert_examples)
         self.num_train_steps = int(len(bert_examples) / self.args.train_batch_size * self.args.num_train_epochs)
 
@@ -636,9 +637,9 @@ class DataProvider():
             if mode == 'dev' and self.clustering_dev_loader is not None:
                 return self.clustering_dev_loader
 
-            bert_examples = self.load_data(self.args.data_dir + "/clustering_%s_qaneg.tsv" % mode) # 수정: qa 추가한 데이터로 변경
+            bert_examples = self.load_data(self.args.data_dir + "/clustering_%s_0510_qa_st.tsv" % mode) # 수정: qa 추가한 데이터로 변경
         else:
-            bert_examples = self.load_data_for_simcse(self.args.data_dir + "/clustering_%s_qaneg.tsv" % mode) # 수정: qa 추가한 데이터로 변경
+            bert_examples = self.load_data_for_simcse(self.args.data_dir + "/clustering_%s_0510_qa_st.tsv" % mode) # 수정: qa 추가한 데이터로 변경
         bert_features = self.convert_examples_to_features(bert_examples)
 
         all_input_ids = torch.tensor([f.input_ids for f in bert_features], dtype=torch.long)
