@@ -238,16 +238,18 @@ class WrapperBert:
             self.model = torch.nn.DataParallel(self.model)
 
         if self.args.local_rank != -1:
-            self.logger.info(f"DistributedDataParallel")
-            self.model = torch.nn.parallel.DistributedDataParallel(self.model,
-                                                                   device_ids=[self.args.local_rank],
-                                                                   output_device=self.args.local_rank,
-                                                                   find_unused_parameters=False)   # 如果没有不参与计算的权重，find_unused_parameters=False可以提升运算速度。
+            # 아래는 local_rank 에러 해결을 위해 추가한 if 문장 하나
+            if 'LOCAL_RANK' in os.environ:
+                self.logger.info(f"DistributedDataParallel")
+                self.model = torch.nn.parallel.DistributedDataParallel(self.model,
+                                                                    device_ids=[self.args.local_rank],
+                                                                    output_device=self.args.local_rank,
+                                                                    find_unused_parameters=False)   # 如果没有不参与计算的权重，find_unused_parameters=False可以提升运算速度。
 
-        # 清空evaluation result cache, 避免vanilla backbone的影响
+        # 清空evaluation result cache, 避免vanilla backbone的影响: 평가 결과 캐시를 지워 기본 백본의 영향을 피할 것
         self.best_test_evaluation_result = EvaluationResult()
 
-        # 启动训练模式
+        # 启动训练模式: 훈련 모드를 시작
         self.model.train()
         # self.model.do(self.args.device)
 
@@ -272,7 +274,7 @@ class WrapperBert:
                     else:
                         loss.backward()
 
-                    # 梯度裁剪
+                    # 梯度裁剪: 그래디언트 클리핑
                     # if self.args.fp16:
                     #     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), -10, 10)
                     # else:
@@ -306,7 +308,7 @@ class WrapperBert:
                             self.best_dev_evaluation_result = dev_evaluation_result
                             self.best_test_evaluation_result = test_evaluation_result
 
-                        # 恢复训练模式
+                        # 恢复训练模式: 훈련 모드로 복원
                         self.model.train()
 
                     pbar.update(self.args.train_batch_size)
@@ -453,6 +455,7 @@ if __name__ == '__main__':
     parser.add_argument("--fp16", action="store_true", help="float16 training")
     parser.add_argument("--fp16_opt_level", default="O1", type=str, help="For fp16: Apex AMP optimization level selected in ['O0', 'O1', 'O2', and 'O3']")
     ## DDP
+    # local_rank 에러 해결을 위해 수정
     # parser.add_argument("--local_rank", default=-1, type=int, help="local rank for DDP training.")
     parser.add_argument("--local_rank", type=int, default=os.environ.get('LOCAL_RANK', 0), help="local rank for DDP training.")
     ## Optimization
@@ -475,6 +478,8 @@ if __name__ == '__main__':
     parser.add_argument("--temperature", default=1., type=float)
 
     # Data
+    parser.add_argument("--data_dir", default='./dial2vec', type=str)
+    parser.add_argument("--model_dir", default='./dial2vec', type=str)
     parser.add_argument("--max_seq_length", default=512, type=int)
     parser.add_argument("--max_turn_view_range", default=1000, type=int)
     parser.add_argument("--max_context_length", default=15, type=int)
@@ -484,13 +489,12 @@ if __name__ == '__main__':
 
     # general configuration
     work_dir = os.path.dirname(os.path.realpath(__file__))
-    print(work_dir)
 
     if args.init_checkpoint is not None:
         if args.init_checkpoint.endswith('pt'):
-            args.init_checkpoint = os.path.join(work_dir, "model", args.init_checkpoint)
+            args.init_checkpoint = os.path.join(args.model_dir, "model", args.init_checkpoint)
         elif args.init_checkpoint.endswith('pkl'):
-            args.init_checkpoint = os.path.join(work_dir, "output", args.init_checkpoint)
+            args.init_checkpoint = os.path.join(work_dir, "output", args.init_checkpoint) # output 폴더에 dial2vec의 모델 넣어야함, 추후 변경 필요
 
     if args.feature_checkpoint is not None:
         if args.feature_checkpoint.endswith('pt'):
@@ -499,7 +503,7 @@ if __name__ == '__main__':
             args.feature_checkpoint = os.path.join(work_dir, "output", args.feature_checkpoint)
 
     args.config_file = os.path.join(work_dir, "model", args.config_file)
-    args.data_dir = os.path.join(work_dir, "datasets/%s" % args.dataset)
+    # args.data_dir = os.path.join(args.datasets_dir, "datasets/%s" % args.dataset)
     args.output_dir = os.path.join(work_dir, "output")   # dumb directory setting
 
     # logging configuration
@@ -510,21 +514,20 @@ if __name__ == '__main__':
     args.logger = logger
 
     # GPU configuration
-    # if args.local_rank == -1:
-    #     print('----------------local rank -1----------------')
-    #     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    #     args.n_gpu = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    # 아래는 local_rank 에러 해결을 위해 if문에 or을 추가한 코드
     if args.local_rank == -1 or 'LOCAL_RANK' not in os.environ:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         args.n_gpu = torch.cuda.device_count() if torch.cuda.is_available() else 0
-
+        
     else:
-        print(f"-----------------------------local rank {args.local_rank}-----------------------------")
-        # 每个进程根据自己 的local_rank来设置应该使用的GPU
+        # 每个进程根据自己 的local_rank来设置应该使用的GPU: 각 프로세스는 자신의 local_rank에 따라 사용해야 할 GPU를 설정
+        # 아래는 local_rank 에러 해결을 위해 일단 추가한 코드
+        args.local_rank = int(os.environ['LOCAL_RANK'])
         torch.cuda.set_device(args.local_rank)
         device = torch.device('cuda', args.local_rank)
         torch.distributed.init_process_group(backend='nccl')
-        # args.n_gpu = 1
+        # 병렬 처리를 위해 코드 변경
+        #args.n_gpu = 1
         args.n_gpu = torch.cuda.device_count() if torch.cuda.is_available() else 0
     args.device = device
 
