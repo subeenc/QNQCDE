@@ -57,7 +57,7 @@ class Dial2vec(nn.Module):
 
         self.dropout = nn.Dropout(self.config.hidden_dropout_prob)
         self.labels_data = None
-        self.sample_nums = 10
+        self.sample_nums = 9  # 수정: 데이터에 따라 수정 필요
         self.log_softmax = nn.LogSoftmax(dim=-1)
         self.avg = BertAVG(eps=1e-6)
         self.logger = args.logger
@@ -121,7 +121,7 @@ class Dial2vec(nn.Module):
         q_cross_output = torch.matmul(filtered_w.permute(0, 2, 1), q_self_output)
         r_cross_output = torch.matmul(filtered_w, r_self_output)
 
-        q_self_output = self.avg(q_self_output, a_attention_mask)
+        q_self_output = self.avg(q_self_output, a_attention_mask)  # torch.Size([90, 768]) // torch.Size([30, 768]), torch.Size([20, 768])
         q_cross_output = self.avg(q_cross_output, b_attention_mask)
         r_self_output = self.avg(r_self_output, b_attention_mask)
         r_cross_output = self.avg(r_cross_output, a_attention_mask)
@@ -151,6 +151,9 @@ class Dial2vec(nn.Module):
 
         logit_r = torch.stack(logit_r, dim=1)
         logit_q = torch.stack(logit_q, dim=1)
+        # print("=======logit개수")
+        # print(len(logit_r))
+        # print(len(logit_q))
 
         loss_r = self.calc_loss(logit_r, labels)
         loss_q = self.calc_loss(logit_q, labels)
