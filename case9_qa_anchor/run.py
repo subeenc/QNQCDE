@@ -52,7 +52,6 @@ class WrapperBert:
         self.model = Dial2vec(self.args)
         self.init_bert(init_checkpoint)
         self.model.set_finetune()
-        # print("------------model to device-----------")
         self.model = self.model.to(self.args.device)
 
     def cosine_similarity(self, x, y):
@@ -255,12 +254,9 @@ class WrapperBert:
                                                                     output_device=self.args.local_rank,
                                                                     find_unused_parameters=False)   # 如果没有不参与计算的权重，find_unused_parameters=False可以提升运算速度。
 
-        # 清空evaluation result cache, 避免vanilla backbone的影响: 평가 결과 캐시를 지워 기본 백본의 영향을 피할 것
         self.best_test_evaluation_result = EvaluationResult()
 
-        # 启动训练模式: 훈련 모드를 시작
         self.model.train()
-        # self.model.do(self.args.device)
 
         train_loader = self.data_provider.get_train_loader()
         for epoch in range(int(self.args.num_train_epochs)):
@@ -283,7 +279,6 @@ class WrapperBert:
                     else:
                         loss.backward()
 
-                    # 梯度裁剪: 그래디언트 클리핑
                     # if self.args.fp16:
                     #     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), -10, 10)
                     # else:
@@ -318,7 +313,6 @@ class WrapperBert:
                                 self.best_dev_evaluation_result = dev_evaluation_result
                                 self.best_test_evaluation_result = test_evaluation_result
 
-                        # 恢复训练模式: 훈련 모드로 복원
                         self.model.train()
 
                     pbar.update(self.args.train_batch_size)
@@ -530,7 +524,6 @@ if __name__ == '__main__':
         args.n_gpu = torch.cuda.device_count() if torch.cuda.is_available() else 0
         
     else:
-        # 每个进程根据自己 的local_rank来设置应该使用的GPU: 각 프로세스는 자신의 local_rank에 따라 사용해야 할 GPU를 설정
         # 아래는 local_rank 에러 해결을 위해 일단 추가한 코드
         args.local_rank = int(os.environ['LOCAL_RANK'])
         torch.cuda.set_device(args.local_rank)

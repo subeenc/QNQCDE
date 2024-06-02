@@ -165,7 +165,7 @@ class DataProvider():
                 for i, r in enumerate(role):
                     ts = []
                     for j in range(len(samples)):
-                        ts.append(samples[j][i])                    # 正负样本中对应role的utterance的列表
+                        ts.append(samples[j][i])                   
                     bert_examples.append(BertExample(guid=index,
                                                      role=r,
                                                      text_a=config.sample_sep_token.join(ts),
@@ -176,7 +176,6 @@ class DataProvider():
         """
         将examples转换为bert_features的工作线程
         """
-        # self.logger.info(f'convert_examples_worker {self.args.backbone}!!') -> 20개 생성
         if self.args.backbone in ['bert', 'roberta', 't5', 'blender', 'unsup_simcse', 'sup_simcse']:
             return self.__convert_examples_worker_for_bert(worker_index, start_index, end_index, examples)
         elif self.args.backbone == 'plato':
@@ -226,6 +225,7 @@ class DataProvider():
                 # blender-token:  token  </s>    token  </s>
                 # segment:          0      0       0      0    0
                 # pos:              0      1       2      3    4
+                
                 if self.args.backbone in ['bert', 'roberta', 'unsup_simcse', 'sup_simcse']:
                     text_tokens.append(start_token)
                     text_turn_ids.append(0)
@@ -292,7 +292,6 @@ class DataProvider():
             features.append(bert_feature)
         return features
 
-    # BertExample 인스턴스를 받아 모델 학습에 사용할 수 있는 특성(BertFeatures)으로 변환하는 과정
     def __convert_examples_worker_for_plato(self, worker_index, start_index, end_index, examples):
         """
         将examples转换为bert_features的工作线程
@@ -343,7 +342,7 @@ class DataProvider():
                 # text_list[0] = self.args.start_token + ' ' + text_list[0]
 
                 if self.args.use_response == True:   # specify the context and response
-                    context, response = text_list[:-1], text_list[-1]  # 마지막 발화를 response로, 나머지 발화들을 context로 분리
+                    context, response = text_list[:-1], text_list[-1]
                     word_list = self.tokenizer.tokenize(response)
                     uttr_len = len(word_list)
 
@@ -391,7 +390,6 @@ class DataProvider():
 
                 assert (max(text_turn_ids) <= self.args.max_context_length)
 
-                # 制作text_position_id序列
                 text_position_ids = []
                 text_position_id = 0
                 for i, turn_id in enumerate(text_turn_ids):
@@ -429,7 +427,8 @@ class DataProvider():
                 sample_position_ids.append(text_position_ids)
                 sample_input_mask.append(text_input_mask)
 
-            label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0]  # 수정: 데이터에 따라 수정 필요
+            # label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0]
+            label_id = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0]
             bert_feature = BertFeatures(input_ids=sample_input_ids,
                                         input_mask=sample_input_mask,
                                         segment_ids=sample_segment_ids,
@@ -593,7 +592,6 @@ class DataProvider():
                                    all_label_ids)
 
         # train_sampler = SequentialSampler(train_data)
-        # train_sampler = RandomSampler(train_data) if self.args.local_rank == -1 else DistributedSampler(train_data)
         train_sampler = RandomSampler(train_data) if self.args.local_rank == -1 else DistributedSampler(train_data,
                                                                                                         num_replicas=torch.cuda.device_count(),
                                                                                                         rank=self.args.local_rank)
