@@ -57,7 +57,7 @@ class Dial2vec(nn.Module):
 
         self.dropout = nn.Dropout(self.config.hidden_dropout_prob)
         self.labels_data = None
-        self.sample_nums = 9  # 수정: 데이터에 따라 수정 필요
+        self.sample_nums = 10  # 수정: 데이터에 따라 수정 필요
         self.log_softmax = nn.LogSoftmax(dim=-1)
         self.avg = BertAVG(eps=1e-6)
         self.logger = args.logger

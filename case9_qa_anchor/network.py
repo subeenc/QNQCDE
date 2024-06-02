@@ -8,50 +8,6 @@ from transformers import AutoModel, AutoConfig
 
 from config import huggingface_mapper
 
-# class SelfAttention(nn.Module):
-#     def __init__(self, hidden_size):
-#         super(SelfAttention, self).__init__()
-#         self.hidden_size = hidden_size
-#         self.query = nn.Linear(hidden_size, hidden_size)
-#         self.key = nn.Linear(hidden_size, hidden_size)
-#         self.value = nn.Linear(hidden_size, hidden_size)
-
-#     def forward(self, x, mask=None):
-#         Q = self.query(x)
-#         K = self.key(x)
-#         V = self.value(x)
-
-#         scores = torch.matmul(Q, K.transpose(-1, -2)) / (self.hidden_size ** 0.5)
-
-#         if mask is not None:
-#             scores = scores.masked_fill(mask == 0, float('-inf'))
-
-#         attention = F.softmax(scores, dim=-1)
-#         output = torch.matmul(attention, V)
-#         return output, attention
-    
-# class CrossAttention(nn.Module):
-#     def __init__(self, hidden_size):
-#         super(CrossAttention, self).__init__()
-#         self.hidden_size = hidden_size
-#         self.query = nn.Linear(hidden_size, hidden_size)
-#         self.key = nn.Linear(hidden_size, hidden_size)
-#         self.value = nn.Linear(hidden_size, hidden_size)
-
-#     def forward(self, q, k, v, mask=None):
-#         Q = self.query(q)
-#         K = self.key(k)
-#         V = self.value(v)
-
-#         scores = torch.matmul(Q, K.transpose(-1, -2)) / (self.hidden_size ** 0.5)
-
-#         if mask is not None:
-#             scores = scores.masked_fill(mask == 0, float('-inf'))
-
-#         attention = F.softmax(scores, dim=-1)
-#         output = torch.matmul(attention, V)
-#         return output, attention
-
 class BertAVG(nn.Module):
     """
     对BERT输出的embedding求masked average
@@ -101,13 +57,10 @@ class Dial2vec(nn.Module):
 
         self.dropout = nn.Dropout(self.config.hidden_dropout_prob)
         self.labels_data = None
-        self.sample_nums = 10  # 수정: 데이터에 따라 수정 필요
+        self.sample_nums = 10
         self.log_softmax = nn.LogSoftmax(dim=-1)
         self.avg = BertAVG(eps=1e-6)
         self.logger = args.logger
-        self.margin = 1.0 # for triplet loss
-        # self.self_attention = SelfAttention(self.config.hidden_size)
-        # self.cross_attention = CrossAttention(self.config.hidden_size)
 
     def set_finetune(self):
         """
@@ -115,7 +68,6 @@ class Dial2vec(nn.Module):
         """
         self.logger.debug("******************")
         name_list = ["11", "10", "9", "8", "7", "6"]
-        # name_list = ["11",'10','9']
         for name, param in self.bert.named_parameters():
             param.requires_grad = False
             for s in name_list:
@@ -175,80 +127,59 @@ class Dial2vec(nn.Module):
         # logits = torch.stack(logits, dim=1)
         # our_loss = self.calc_loss(logits, labels)
         
-        # triplet - 전체 대화 기준 loss
-        logits = []
-        for i in range(2, self.sample_nums):
-            trip_output = self.triplet_loss(self_output[:, 0, :], self_output[:, 1, :], self_output[:, i, :])
-            logits.append(trip_output)
+        # # triplet - 전체 대화 기준 loss
+        # logits = []
+        # for i in range(2, self.sample_nums):
+        #     trip_output = self.triplet_loss(self_output[:, 0, :], self_output[:, 1, :], self_output[:, i, :])
+        #     logits.append(trip_output)
         
-        our_loss = torch.stack(logits, dim=1).mean()
+        # our_loss = torch.stack(logits, dim=1).mean()
         
-        # Q, A별 loss 
-        logits_qr = []
-        for i in range(1, self.sample_nums):
+        # Q, A별 loss
+        
+        # # 1. anchor & negative samples
+        # logits_an = []
+        # sample_ls = [0, 2, 3, 4, 5, 6, 7, 8, 9] # anchor, negative
+        # for i in sample_ls:
+        #     cos_qr = self.calc_cos(q_self_output[:, i, :], r_self_output[:, i, :])
+        #     logits_an.append(cos_qr)
+        
+        # logits_an = torch.stack(logits_an, dim=1)
+        # our_loss_an = self.calc_loss(logits_an, labels)
+        
+        # # 2. positive & negative sampels
+        # logits_pn = []
+        # for i in range(1, self.sample_nums):
+        #     cos_qr = self.calc_cos(q_self_output[:, i, :], r_self_output[:, i, :])
+        #     logits_pn.append(cos_qr)
+        
+        # logits_pn = torch.stack(logits_pn, dim=1)
+        # our_loss_pn = self.calc_loss(logits_pn, labels)
+        
+        # 3. anchor & positive & negative samples 
+        logits_apn = []
+        for i in range(0, self.sample_nums):
             cos_qr = self.calc_cos(q_self_output[:, i, :], r_self_output[:, i, :])
-            logits_qr.append(cos_qr)
+            logits_apn.append(cos_qr)
         
-        logits_qr = torch.stack(logits_qr, dim=1)
-        our_loss_qr = self.calc_loss(logits_qr, labels)
+        logits_apn = torch.stack(logits_apn, dim=1)
+        # labels_apn = torch.tensor([1, 1, 0, 0, 0, 0, 0, 0, 0, 0])
+        our_loss_apn = self.calc_loss(logits_apn, labels)
 
         if strategy not in ['mean', 'mean_by_role']:
             raise ValueError('Unknown strategy: [%s]' % strategy)
 
         # print(our_loss, our_loss_qr)
-        output_dict = {'loss': 0*our_loss + our_loss_qr,
+        output_dict = {'loss': our_loss_apn,
                        'final_feature': output}
 
         return output_dict
-    
-    # using anchor, positive, negative embedding
-    # def forward(self, data, strategy='mean_by_role', output_attention=False): 
-    #     """
-    #     前向传递过程
-    #     """
-    #     if len(data) == 7:
-    #         input_ids, attention_mask, token_type_ids, role_ids, turn_ids, position_ids, labels = data
-    #     else:
-    #         input_ids, attention_mask, token_type_ids, role_ids, turn_ids, position_ids, labels, guids = data
-
-    #     input_ids = input_ids.view(input_ids.size()[0] * input_ids.size()[1], input_ids.size()[-1])
-    #     attention_mask = attention_mask.view(attention_mask.size()[0] * attention_mask.size()[1], attention_mask.size()[-1])
-    #     token_type_ids = token_type_ids.view(token_type_ids.size()[0] * token_type_ids.size()[1], token_type_ids.size()[-1])
-    #     role_ids = role_ids.view(role_ids.size()[0] * role_ids.size()[1], role_ids.size()[-1])
-    #     turn_ids = turn_ids.view(turn_ids.size()[0] * turn_ids.size()[1], turn_ids.size()[-1])
-    #     position_ids = position_ids.view(position_ids.size()[0] * position_ids.size()[1], position_ids.size()[-1])
-        
-    #     self_output, pooled_output = self.encoder(input_ids, attention_mask, token_type_ids, position_ids, turn_ids, role_ids)
-
-    #     self_output = self_output * attention_mask.unsqueeze(-1)
-    #     self_output = self.avg(self_output, attention_mask) # torch.Size([100, 768])
-
-    #     self_output = self_output.view(-1, self.sample_nums, self.config.hidden_size)
-    #     pooled_output = pooled_output.view(-1, self.sample_nums, self.config.hidden_size)
-
-    #     output = self_output[:, 0, :]
-        
-    #     logits = []
-    #     for i in range(1, self.sample_nums):
-    #         cos_output = self.calc_cos(self_output[:, 0, :], self_output[:, i, :])
-    #         logits.append(cos_output)
-        
-    #     logits = torch.stack(logits, dim=1)
-    #     our_loss = self.calc_loss(logits, labels)
-
-    #     if strategy not in ['mean', 'mean_by_role']:
-    #         raise ValueError('Unknown strategy: [%s]' % strategy)
-
-    #     output_dict = {'loss': our_loss,
-    #                    'final_feature': output}
-
-    #     return output_dict
 
     def encoder(self, *x):
         """
         BERT编码过程
         """
-        input_ids, attention_mask, token_type_ids, position_ids, turn_ids, role_ids = x     # 每个都是[batch_size * num_turn, hidden_size]
+        input_ids, attention_mask, token_type_ids, position_ids, turn_ids, role_ids = x 
         if self.args.backbone in ['bert', 'roberta', 'todbert', 'unsup_simcse', 'sup_simcse']:
             output = self.bert(input_ids=input_ids,
                                attention_mask=attention_mask,
@@ -261,7 +192,7 @@ class Dial2vec(nn.Module):
                                attention_mask=attention_mask,
                                output_hidden_states=True,
                                return_dict=True)
-            output['pooler_output'] = output['last_hidden_state']   # Notice: 为了实现便利，此处赋值一个tensor占位，但实际上不影响，因为没用到pooler output进行计算。
+            output['pooler_output'] = output['last_hidden_state']  
         elif self.args.backbone in ['plato']:
             output = self.bert(input_ids=input_ids,
                                attention_mask=attention_mask,

@@ -429,7 +429,7 @@ class DataProvider():
                 sample_position_ids.append(text_position_ids)
                 sample_input_mask.append(text_input_mask)
 
-            label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0]  # 수정: 데이터에 따라 수정 필요
+            label_id = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]  # 수정: 데이터에 따라 수정 필요
             bert_feature = BertFeatures(input_ids=sample_input_ids,
                                         input_mask=sample_input_mask,
                                         segment_ids=sample_segment_ids,
