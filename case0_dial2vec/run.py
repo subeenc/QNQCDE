@@ -288,6 +288,7 @@ class WrapperBert:
                         pbar.set_postfix(epoch=epoch, global_step=global_step, train_loss=float(loss.item()))
 
                     if global_step % self.args.test_interval == 0:
+                        self.logger.info('***** Epoch = %s | Global Step = %s *****' % (epoch, global_step))
                         is_best, dev_evaluation_result = self.eval_tasks(strategy='mean_by_role',
                                                                          tasks=['clustering', 'semantic_relatedness', 'session_retrieval', 'align_uniform'],
                                                                          mode='dev',
@@ -304,7 +305,7 @@ class WrapperBert:
                                                                                          self.args.max_turn_view_range))
                             if self.args.local_rank in [-1, 0]:
                                 torch.save(self.model.module.state_dict(), self.best_model_name)
-                                self.logger.info('Save best model to -> [%s] on LOCAL_RANK=%s' % (self.best_model_name, self.args.local_rank))
+                                self.logger.info('***** is_best_dev -> [%s] | Save best model to -> [%s] on LOCAL_RANK=%s' % (is_best, self.best_model_name, self.args.local_rank))
                             self.best_dev_evaluation_result = dev_evaluation_result
                             self.best_test_evaluation_result = test_evaluation_result
 
@@ -509,7 +510,10 @@ if __name__ == '__main__':
     # logging configuration
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                         datefmt='%m/%d/%Y %H:%M:%S',
-                        level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN)
+                        level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN,
+                        filename=os.path.join('logs', f'{args.dataset}.log'),  # 로그 저장 파일명
+                        filemode='a'  # 'a'는 추가 모드, 'w'는 덮어쓰기 모드
+                        )
     logger = logging.getLogger(__name__)
     args.logger = logger
 
