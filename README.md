@@ -28,6 +28,10 @@ pip3 -r install requirements.txt
 ## url -> https://drive.google.com/file/d/1Xq_nj-le_Mm6iUUHjltPtJZYd6gmSvNb/view?usp=sharing
 ```
 
+### Data
+The dataset required for this project can be downloaded from the following link:
+[Download Dataset](https://drive.google.com/drive/folders/1sNowWiejo_Hwf1y1HSl9w2PDLK1BUxRj?usp=sharing)
+
 ### Train
 Train dial2vec on `${dataset}`, we can use the following script:
 
