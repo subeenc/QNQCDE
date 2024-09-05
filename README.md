@@ -1,4 +1,4 @@
-# dial2vec
+# SimCDE
 
 ## Introduction
 This is the repository of our paper 'dial2vec: Self-Guided Contrastive Learning of Unsupervised Dialogue Embeddings'.
