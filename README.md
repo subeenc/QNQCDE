@@ -12,19 +12,19 @@ Dataset Options: `bitod`,`doc2dial`,`metalwoz`,`mwoz`,`selfdialog`,`sgd`
 
 ### Installation
 ```shell
-git clone https://github.com/AlibabaResearch/DAMO-ConvAI/tree/main/dial2vec
-cd dial2vec
+git clone https://github.com/AlibabaResearch/DAMO-ConvAI/tree/main/QNQCDE
+cd QNQCDE
 
-# conda create -n dial2vec python=3.8
+# conda create -n qnqcde python=3.8
 pip3 -r install requirements.txt
 
-## download all datasets and move them to ./dial2vec/datasets/
+## download all datasets and move them to ./QNQCDE/datasets/
 ## url -> https://drive.google.com/file/d/1KpxQGXg9gvH-2u21bAMykL5N-tpYU2Dr/view?usp=sharing
 
-## download all trained checkpoints and move them to ./dial2vec/output/
+## download all trained checkpoints and move them to ./QNQCDE/output/
 ## url -> https://drive.google.com/file/d/1JVod0OLyiVeIRVxvA-uk1TKa_zMn-sZK/view?usp=sharing
 
-## download useful PLM and move them to ./dial2vec/model/
+## download useful PLM and move them to ./QNQCDE/model/
 ## url -> https://drive.google.com/file/d/1Xq_nj-le_Mm6iUUHjltPtJZYd6gmSvNb/view?usp=sharing
 ```
 
@@ -33,10 +33,10 @@ The dataset required for this project can be downloaded from the following link:
 [Download Dataset](https://drive.google.com/drive/folders/1sNowWiejo_Hwf1y1HSl9w2PDLK1BUxRj?usp=sharing)
 
 ### Train
-Train dial2vec on `${dataset}`, we can use the following script:
+Train QNQCDE on `${dataset}`, we can use the following script:
 
 ```shell
-sh scripts/train/run_plato.sh 'doc2dial' 'train' 5 100  # train dial2vec on doc2dial dataset
+sh scripts/train/run_plato.sh 'doc2dial' 'train' 5 100  # train QNQCDE on doc2dial dataset
 ```
 
 ### Inference
@@ -50,7 +50,7 @@ sh scripts/inference/run_roberta.sh 'mwoz'  # evaluate roberta on MultiWOZ datas
 If you want to inference several models on one dataset in one line, then you can receive results for all models.
 
 ```shell
-sh scripts/inference/run_dataset.sh 'bitod'  # evaluate all models including dial2vec and baselines on BiTOD dataset.
+sh scripts/inference/run_dataset.sh 'bitod'  # evaluate all models including QNQCDE and baselines on BiTOD dataset.
 ```
 
 If you want to inference one model on several datasets in one line, then you can receive results for all datasets.
