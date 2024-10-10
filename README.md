@@ -1,7 +1,7 @@
 # QNQCDE
 
 ## Introduction
-This is the repository of our paper 'dial2vec: Self-Guided Contrastive Learning of Unsupervised Dialogue Embeddings'.
+This is the repository of our paper 'QNQCDE: Simple Contrastive Learning of Dialogue Embeddings using Question and Non-Question pairs'.
 
 ## Quick Start
 We prepare a set of shell scripts for convenient usage.
