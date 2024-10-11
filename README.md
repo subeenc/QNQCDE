@@ -10,23 +10,6 @@ Model Options: `bert`,`roberta`,`t5`,`todbert`,`blender`,`plato`,`bge`
 
 Dataset Options: `bitod`,`doc2dial`,`metalwoz`,`mwoz`,`selfdialog`,`sgd`
 
-### Installation
-```shell
-git clone
-
-# conda create -n qnqcde python=3.8
-pip3 -r install requirements.txt
-
-## download all datasets and move them to ./QNQCDE/datasets/
-## url -> https://drive.google.com/file/d/1KpxQGXg9gvH-2u21bAMykL5N-tpYU2Dr/view?usp=sharing
-
-## download all trained checkpoints and move them to ./QNQCDE/output/
-## url -> https://drive.google.com/file/d/1JVod0OLyiVeIRVxvA-uk1TKa_zMn-sZK/view?usp=sharing
-
-## download useful PLM and move them to ./QNQCDE/model/
-## url -> https://drive.google.com/file/d/1Xq_nj-le_Mm6iUUHjltPtJZYd6gmSvNb/view?usp=sharing
-```
-
 ### Data
 The dataset required for this project can be downloaded from the following link:
 [Download Dataset](https://drive.google.com/drive/folders/1sNowWiejo_Hwf1y1HSl9w2PDLK1BUxRj?usp=sharing)
