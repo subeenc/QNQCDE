@@ -1,3 +1,6 @@
+# This code is adapted from the Dial2vec implementation by DAMO Academy, Alibaba Group.
+# Original code: https://github.com/AlibabaResearch/DAMO-ConvAI/tree/main/dial2vec
+
 #!/usr/bin/python
 # _*_coding:utf-8_*_
 
@@ -12,7 +15,7 @@ from tqdm import tqdm
 
 from optimization import BERTAdam
 from data import data_provider
-from network import SimCDE
+from network import QNQCDE
 from metrics import *
 from utils import split_matrix
 
@@ -32,38 +35,30 @@ class WrapperBert:
         self.disable_tqdm = False if args.local_rank in [-1, 0] else True
 
     def init_data_socket(self):
-        """
-        初始化数据接口
-        """
+
         # os.makedirs(self.args.output_dir, exist_ok=True)
         self.data_provider = data_provider.DataProvider(self.args)
         self.data_provider.init_data_socket()
 
     def load_model(self, init_checkpoint):
-        """
-        加载模型
-        """
+
         self.args.num_labels = len(self.data_provider.get_labels())
         self.args.total_steps = self.data_provider.peek_num_train_examples()
         self.args.sep_token_id = self.data_provider.get_tokenizer().convert_tokens_to_ids(self.args.sep_token)
 
-        self.model = SimCDE(self.args)
+        self.model = QNQCDE(self.args)
         self.init_bert(init_checkpoint)
         self.model.set_finetune()
         self.model = self.model.to(self.args.device)
 
     def cosine_similarity(self, x, y):
-        """
-        计算向量的cosine值
-        """
+
         num = x.dot(y.T)
         denom = np.linalg.norm(x) * np.linalg.norm(y)
         return num / denom
 
     def normalize_features(self, batch_feature):
-        """
-        对编码的特征做归一化
-        """
+
         batch_feature = np.array(batch_feature, dtype=np.float32)
         batch_feature = batch_feature / (np.sqrt((batch_feature ** 2).sum(axis=1))[:, None] + 1e-6)
         return batch_feature
@@ -78,7 +73,6 @@ class WrapperBert:
         features: np.array = None
     ):
         """
-        集成评估API
         :param strategy:    str             embedding strategy
                                             [Options: mean: mean,
                                                       mean_by_role: mean w.r.t. role first, then add them together.]
@@ -241,13 +235,12 @@ class WrapperBert:
             self.model = torch.nn.DataParallel(self.model)
 
         if self.args.local_rank != -1:
-            # 아래는 local_rank 에러 해결을 위해 추가한 if 문장 하나
             if 'LOCAL_RANK' in os.environ:
                 self.logger.info(f"DistributedDataParallel")
                 self.model = torch.nn.parallel.DistributedDataParallel(self.model,
                                                                     device_ids=[self.args.local_rank],
                                                                     output_device=self.args.local_rank,
-                                                                    find_unused_parameters=False)   # 如果没有不参与计算的权重，find_unused_parameters=False可以提升运算速度。
+                                                                    find_unused_parameters=False)
 
         self.best_test_evaluation_result = EvaluationResult()
 
@@ -468,8 +461,8 @@ if __name__ == '__main__':
     parser.add_argument("--temperature", default=1., type=float)
 
     # Data
-    parser.add_argument("--data_dir", default='./simcde', type=str)
-    parser.add_argument("--model_dir", default='./simcde', type=str)
+    parser.add_argument("--data_dir", default='./qnqcde', type=str)
+    parser.add_argument("--model_dir", default='./qnqcde', type=str)
     parser.add_argument("--max_seq_length", default=512, type=int)
     parser.add_argument("--max_turn_view_range", default=1000, type=int)
     parser.add_argument("--max_context_length", default=15, type=int)

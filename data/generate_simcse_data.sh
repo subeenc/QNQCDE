@@ -9,5 +9,5 @@ do
                    --dataset ${dataset} \
                    --data_directory ${data_directory} \
                    --output_directory ${output_directory} \
-                   > dial2vec_to_simcse_${dataset}.log 2>&1 &
+                   > qnqcde_to_simcse_${dataset}.log 2>&1 &
 done

@@ -98,8 +98,6 @@ class MultiheadAttention(nn.Module):
         if mask is not None:
             '''
             mask: [batch size, num_attention_heads, seq_len, seq_len]
-            mask后两维(seq_len, seq_len)矩阵来看，其中有的行可能都是true(1)，对应句子中<pad>位看的行
-            导致softmax后该行的每个位置的attn prob都为1/n而非0，所以此处需重置为0
 
             >>> F.softmax([-1e10, -100, -100])
             >>> [0.00, 0.50, 0.50]
@@ -244,12 +242,6 @@ class PlatoModel(nn.Module):
     def _create_mask(self, input_mask, append_head=False, auto_regressive=False):
         """
         Create attention mask.
-        创建从序列形式到矩阵形式的mask：[batch_size, max_seq_len， 1] -> [batch_size, max_seq_len, max_seq_len]
-        mask除了要考虑attention mask（自回归），还需要考虑pad的mask（自回归和双向）
-        注：
-        1. 一个句子中的非<pad>词看整个句子，该句中只有<pad>词才被mask
-        2. 一个句子中的<pad>词看整个句子，该句的所有词都应该被mask
-
         @param : input_mask
         @type : Variable(shape: [batch_size, max_seq_len])
 

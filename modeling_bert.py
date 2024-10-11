@@ -340,9 +340,7 @@ class BertModel(nn.Module):
         self.pooler = BERTPooler(config)
 
     def forward(self, input_ids, turn_ids, role_ids, position_ids, token_type_ids, attention_mask=None):
-        """
-        前向编码过程
-        """
+
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
         if token_type_ids is None:
@@ -372,9 +370,7 @@ class BertModel(nn.Module):
 
 
 class BERTavg(nn.Module):
-    """
-    对BERT输出的embedding求masked average
-    """
+
     def __init__(self):
         super(BERTavg, self).__init__()
 
@@ -386,12 +382,9 @@ class BERTavg(nn.Module):
         return avg_output
 
 
-class Dial2vec(nn.Module):
-    """
-    Dial2vec模型
-    """
+class QNQCDE(nn.Module):
     def __init__(self, *arg):
-        super(Dial2vec, self).__init__()
+        super(QNQCDE, self).__init__()
         self.result = {}
         num_labels, total_steps, self.sep_token_id = arg
         config = BertConfig.from_json_file(user_config.plm_config_file)
@@ -404,9 +397,7 @@ class Dial2vec(nn.Module):
         self.avg = BERTavg()
 
     def set_finetune(self):
-        """
-        设置微调层数
-        """
+
         print("******************")
         name_list = ["11", "10", "9", "8", "7", "6"]
         # name_list = ["11",'10','9']
@@ -418,9 +409,7 @@ class Dial2vec(nn.Module):
                     param.requires_grad = True
 
     def forward(self, data, *arg):
-        """
-        前向传递过程
-        """
+
         input_ids, attention_mask, token_type_ids, role_ids, turn_ids, position_ids, labels = data
 
         input_ids = input_ids.view(input_ids.size()[0] * input_ids.size()[1], input_ids.size()[-1])
@@ -484,7 +473,6 @@ class Dial2vec(nn.Module):
             q_self_output = a_self_output * a_attention_mask.unsqueeze(-1)
             r_self_output = b_self_output * b_attention_mask.unsqueeze(-1)
 
-            # 新增！！！！！！！！
             # attention_mask = attention_mask * sep_mask
             self_output = a_self_output * attention_mask.unsqueeze(-1)
             w = torch.matmul(q_self_output, r_self_output.transpose(-1, -2))
@@ -527,25 +515,19 @@ class Dial2vec(nn.Module):
         return loss_r + loss_q, q_output + r_output
 
     def encoder(self, *x):
-        """
-        BERT编码过程
-        """
+
         input_ids, turn_ids, role_ids, position_ids, token_type_ids, attention_mask = x
         all_output, pool_output = self.bert(input_ids, turn_ids, role_ids, position_ids, token_type_ids, attention_mask)
         return all_output[-1], pool_output
 
     def calc_cos(self, x, y):
-        """
-        计算cosine相似度
-        """
+
         cos = torch.cosine_similarity(x, y, dim=1)
         cos = cos / 2.0
         return cos
 
     def calc_loss(self, pred, labels):
-        """
-        计算损失函数
-        """
+
         loss = -torch.mean(self.log_softmax(pred) * labels)
         return loss
 
