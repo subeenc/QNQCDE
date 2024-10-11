@@ -12,8 +12,7 @@ Dataset Options: `bitod`,`doc2dial`,`metalwoz`,`mwoz`,`selfdialog`,`sgd`
 
 ### Installation
 ```shell
-git clone https://github.com/subeenc/QNQCDE.git
-cd QNQCDE
+git clone
 
 # conda create -n qnqcde python=3.8
 pip3 -r install requirements.txt
