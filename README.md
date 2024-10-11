@@ -8,17 +8,17 @@ We prepare a set of shell scripts for convenient usage.
 
 Model Options: `bert`,`roberta`,`t5`,`todbert`,`blender`,`plato`,`bge`
 
-Dataset Options: `bitod`,`doc2dial`,`metalwoz`,`mwoz`,`selfdialog`,`sgd`
+Dataset Options: `metalwoz`,`mwoz`,`selfdialog`,`sgd`, `mediasum`, `multiuserwoz`
 
 ### Data
 The dataset required for this project can be downloaded from the following link:
-[Download Dataset](https://drive.google.com/drive/folders/1sNowWiejo_Hwf1y1HSl9w2PDLK1BUxRj?usp=sharing)
+[Download Dataset](https://drive.google.com/drive/folders/1K--FFa1ogWVKVi0SzU_eXJPWedoFNcJM?usp=drive_link)
 
 ### Train
 Train QNQCDE on `${dataset}`, we can use the following script:
 
 ```shell
-sh scripts/train/run_plato.sh 'doc2dial' 'train' 5 100  # train QNQCDE on doc2dial dataset
+sh scripts/train/run_plato.sh 'sgd' 'train' 5 100  # train QNQCDE on sgd dataset
 ```
 
 ### Inference
@@ -32,7 +32,7 @@ sh scripts/inference/run_roberta.sh 'mwoz'  # evaluate roberta on MultiWOZ datas
 If you want to inference several models on one dataset in one line, then you can receive results for all models.
 
 ```shell
-sh scripts/inference/run_dataset.sh 'bitod'  # evaluate all models including QNQCDE and baselines on BiTOD dataset.
+sh scripts/inference/run_dataset.sh 'mediasum'  # evaluate all models including QNQCDE and baselines on mediasum dataset.
 ```
 
 If you want to inference one model on several datasets in one line, then you can receive results for all datasets.
