@@ -22,7 +22,7 @@ class EvaluationResult(OrderedDict):
     acc: float = 0.         # Clustering Accuracy
     purity: float = 0.      # Clutering Purity
     SR: float = 0.          # Semantic Relatedness
-    MRR: float = 0.         # 平均倒数排名（Mean Reciprocal Rank, MRR）
+    MRR: float = 0.         # Mean Reciprocal Rank, MRR
     MAP: float = 0.         # Mean Average Precision
     all_mean: float = 0.
     alignment: float = 0.
@@ -30,9 +30,9 @@ class EvaluationResult(OrderedDict):
     uniformity: float = 0.
 
     def __post_init__(self):
-        self.positive_metrics = ['RI', 'NMI', 'acc', 'purity', 'SR', 'MRR', 'MAP']  # 越大越好的metrics
-        self.negative_metrics = []   # 越小越好的metrics
-        self.not_metrics = ['all_mean', 'alignment', 'adjusted_alignment', 'uniformity']  # 其它不是metric的属性
+        self.positive_metrics = ['RI', 'NMI', 'acc', 'purity', 'SR', 'MRR', 'MAP']
+        self.negative_metrics = []
+        self.not_metrics = ['all_mean', 'alignment', 'adjusted_alignment', 'uniformity']
 
         self.all_mean = 0.
         self.mean()
@@ -171,7 +171,6 @@ def semantic_relatedness_precise(y_true=None, features=None, scores_from_subject
 
 def skip_diag_strided(A):
     """
-    删除numpy的对角元
     ref: https://qa.1r1g.com/sf/ask/3271538091/
     :param A:   numpy.array [N, N]
     :return:
@@ -302,9 +301,6 @@ def purity_score(y_true, y_pred):
 
 
 def get_accuracy(y_true, y_pred):
-    """
-    计算聚类的准确率
-    """
     y_true = y_true.astype(np.int64)
 
     assert y_pred.size == y_true.size
@@ -353,7 +349,7 @@ def align_loss(x, y, label, alpha=2):
     """
 
     # return (x - y).norm(p=2, dim=1).pow(alpha).mean()
-    # return ((x - y).norm(p=2, dim=1).pow(alpha) * label).sum() / label.sum()  # TODO: 正例对数不同
+    # return ((x - y).norm(p=2, dim=1).pow(alpha) * label).sum() / label.sum()
     return ((x - y).norm(p=2, dim=1).pow(alpha) * label).sum(), label.sum()
 
 

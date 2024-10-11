@@ -29,9 +29,9 @@ class BertAVG(nn.Module):
         return avg_output
 
 
-class SimCDE(nn.Module):
+class QNQCDE(nn.Module):
     def __init__(self, args):
-        super(SimCDE, self).__init__()
+        super(QNQCDE, self).__init__()
         self.args = args
         self.result = {}
         num_labels, total_steps, self.sep_token_id = args.num_labels, args.total_steps, args.sep_token_id
